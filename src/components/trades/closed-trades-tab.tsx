@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { sideForTrigger, type TradeAlert } from "@/lib/types";
-import { mexcChartUrl } from "@/lib/format";
+import { ChartModal } from "@/components/charts/chart-modal";
 
 interface Props {
   closedAlerts: TradeAlert[];
@@ -29,6 +30,8 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
+  const [chartItem, setChartItem] = useState<TradeAlert | null>(null);
+
   if (closedAlerts.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-center border border-dashed border-line rounded-xl bg-panel/30">
@@ -127,11 +130,10 @@ export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
                 <td className="py-3 px-4 text-muted text-[11px]">{formatDate(row.closed_at)}</td>
                 <td className="py-3 px-4 text-right whitespace-nowrap">
                   <div className="flex items-center justify-end gap-1.5">
-                    <a
-                      href={mexcChartUrl(row.symbol)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title={`Open ${formatSymbol(row.symbol)} chart on MEXC`}
+                    <button
+                      type="button"
+                      onClick={() => setChartItem(row)}
+                      title={`Open ${formatSymbol(row.symbol)} interactive chart`}
                       className="px-2 py-1 rounded text-[11px] font-mono font-medium text-accent hover:bg-accent/10 border border-accent/20 transition-colors flex items-center gap-1 cursor-pointer"
                     >
                       <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -141,7 +143,7 @@ export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
                         <path d="M8 17v-3" />
                       </svg>
                       Chart
-                    </a>
+                    </button>
                     <button
                       type="button"
                       onClick={() => onEdit(row)}
@@ -173,6 +175,23 @@ export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
           })}
         </tbody>
       </table>
+
+      {chartItem && (
+        <ChartModal
+          isOpen={!!chartItem}
+          onClose={() => setChartItem(null)}
+          symbol={chartItem.symbol}
+          setup={{
+            symbol: chartItem.symbol,
+            side: sideForTrigger(chartItem.trigger_direction) === "long" ? "LONG" : "SHORT",
+            trigger_price: chartItem.trigger_price,
+            entry_price: chartItem.entry_price ?? chartItem.fired_price,
+            stop_loss: chartItem.stop_loss,
+            take_profit: chartItem.take_profit,
+            order_type: chartItem.order_type,
+          }}
+        />
+      )}
     </div>
   );
 }

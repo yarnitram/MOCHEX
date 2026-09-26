@@ -9,8 +9,8 @@ import { CloseTradeModal } from "./close-trade-modal";
 import { ClosedTradesTab } from "./closed-trades-tab";
 import { ArchivedTradesTab } from "./archived-trades-tab";
 import { useLivePrices, formatLastRefreshed } from "./use-live-prices";
-import { mexcChartUrl } from "@/lib/format";
 import { PositionCalculatorModal } from "@/components/calculator/position-calculator-modal";
+import { ChartModal } from "@/components/charts/chart-modal";
 
 interface Props {
   initialAlerts: TradeAlert[];
@@ -278,6 +278,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [calcModalOpen, setCalcModalOpen] = useState(false);
   const [closingAlert, setClosingAlert] = useState<TradeAlert | null>(null);
+  const [chartAlert, setChartAlert] = useState<TradeRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const icons = useMemo(() => {
@@ -936,12 +937,11 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
                           )}
                           <td className="px-2 py-2.5 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1.5">
-                              <a
-                                href={mexcChartUrl(a.symbol)}
-                                target="_blank"
-                                rel="noopener noreferrer"
+                              <button
+                                type="button"
+                                onClick={() => setChartAlert(a)}
                                 className="px-2 py-1 rounded text-[11px] font-mono font-medium text-accent hover:bg-accent/10 border border-accent/20 transition-colors flex items-center gap-1 cursor-pointer"
-                                title={`Open ${cleanSymbol(a.symbol)} chart on MEXC`}
+                                title={`Open ${cleanSymbol(a.symbol)} interactive chart with trade setup`}
                               >
                                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                   <path d="M3 3v18h18" />
@@ -950,7 +950,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
                                   <path d="M8 17v-3" />
                                 </svg>
                                 <span>Chart</span>
-                              </a>
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => setClosingAlert(a)}
@@ -1139,6 +1139,23 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
           onClose={() => setCalcModalOpen(false)}
           onApply={() => {
             setManualModalOpen(true);
+          }}
+        />
+      )}
+
+      {chartAlert && (
+        <ChartModal
+          isOpen={!!chartAlert}
+          onClose={() => setChartAlert(null)}
+          symbol={chartAlert.symbol}
+          setup={{
+            symbol: chartAlert.symbol,
+            side: chartAlert.side === "long" ? "LONG" : "SHORT",
+            trigger_price: chartAlert.trigger_price,
+            entry_price: chartAlert.entry_price ?? chartAlert.fired_price,
+            stop_loss: chartAlert.stop_loss,
+            take_profit: chartAlert.take_profit,
+            order_type: chartAlert.order_type,
           }}
         />
       )}
