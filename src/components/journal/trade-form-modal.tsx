@@ -72,6 +72,85 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Position Size Calculator helper state
+  const [showSizeCalc, setShowSizeCalc] = useState(false);
+  const [riskBudget, setRiskBudget] = useState("50"); // default $50 risk budget
+
+  // Numerical values derived from inputs for live auto-calculations
+  const numEntry = Number(entryPrice);
+  const numExit = exitPrice.trim() !== "" ? Number(exitPrice) : null;
+  const numStop = stopPrice.trim() !== "" ? Number(stopPrice) : null;
+  const numSize = Number(size);
+  const numFees = fees.trim() !== "" ? Number(fees) : 0;
+
+  const validEntry = Number.isFinite(numEntry) && numEntry > 0;
+  const validSize = Number.isFinite(numSize) && numSize > 0;
+
+  // 1. Notional Position Value: Size * Entry Price
+  const notionalValue = validEntry && validSize ? numEntry * numSize : null;
+
+  // 2. Risk Calculations (if stop price is provided)
+  const riskPerUnit =
+    validEntry && numStop != null && Number.isFinite(numStop)
+      ? direction === "long"
+        ? Math.max(0, numEntry - numStop)
+        : Math.max(0, numStop - numEntry)
+      : null;
+
+  const totalRiskDollars =
+    riskPerUnit != null && validSize ? riskPerUnit * numSize : null;
+
+  // 3. Realized or Projected PnL
+  const pnlCalculation = useMemo(() => {
+    if (!validEntry || !validSize || numExit == null || !Number.isFinite(numExit)) {
+      return null;
+    }
+    const gross =
+      direction === "short"
+        ? (numEntry - numExit) * numSize
+        : (numExit - numEntry) * numSize;
+    const net = gross - numFees;
+    const notional = numEntry * numSize;
+    const pct = notional > 0 ? (net / notional) * 100 : 0;
+    return { gross, net, pct };
+  }, [validEntry, validSize, numEntry, numExit, numFees, direction]);
+
+  // 4. R:R (Risk to Reward ratio)
+  const rrCalculation = useMemo(() => {
+    if (
+      !validEntry ||
+      riskPerUnit == null ||
+      riskPerUnit <= 0 ||
+      numExit == null ||
+      !Number.isFinite(numExit)
+    ) {
+      return null;
+    }
+    const rewardPerUnit =
+      direction === "long" ? numExit - numEntry : numEntry - numExit;
+    const rr = rewardPerUnit / riskPerUnit;
+    return rr;
+  }, [validEntry, riskPerUnit, numExit, numEntry, direction]);
+
+  // Calculated size from risk budget
+  const calculatedSizeFromRisk = useMemo(() => {
+    const budget = Number(riskBudget);
+    if (!Number.isFinite(budget) || budget <= 0 || riskPerUnit == null || riskPerUnit <= 0) {
+      return null;
+    }
+    return budget / riskPerUnit;
+  }, [riskBudget, riskPerUnit]);
+
+  // Quick R target application
+  function applyTargetR(rMultiplier: number) {
+    if (!validEntry || riskPerUnit == null || riskPerUnit <= 0) return;
+    const targetExit =
+      direction === "long"
+        ? numEntry + rMultiplier * riskPerUnit
+        : numEntry - rMultiplier * riskPerUnit;
+    setExitPrice(String(targetExit));
+  }
+
   // Sync state if editing trade changes
   useEffect(() => {
     if (trade) {
@@ -355,6 +434,156 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 placeholder="0.00"
               />
             </label>
+          </div>
+
+          {/* Live Auto-Calculations Preview Box */}
+          <div className="p-3 rounded-xl bg-panel-soft/60 border border-line flex flex-col gap-2 mt-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold flex items-center gap-1.5">
+                <span>📊</span>
+                <span>Live Calculations & Metrics</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowSizeCalc((prev) => !prev)}
+                className="text-[10px] font-mono text-accent hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <span>🧮</span>
+                <span>{showSizeCalc ? "Hide Size Calculator" : "Auto-Calculate Size"}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              {/* Position Value */}
+              <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
+                <span className="text-[10px] text-muted font-mono uppercase">Position Value</span>
+                <span className="font-mono font-semibold text-text">
+                  {notionalValue != null
+                    ? `$${notionalValue.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                    : "—"}
+                </span>
+              </div>
+
+              {/* Max Risk */}
+              <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
+                <span className="text-[10px] text-muted font-mono uppercase">Max Risk ($)</span>
+                <span className={`font-mono font-semibold ${totalRiskDollars != null ? "text-loss" : "text-muted"}`}>
+                  {totalRiskDollars != null
+                    ? `$${totalRiskDollars.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                    : "—"}
+                </span>
+              </div>
+
+              {/* Projected/Realized PnL */}
+              <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
+                <span className="text-[10px] text-muted font-mono uppercase">Net P&L</span>
+                <span className={`font-mono font-semibold ${
+                  pnlCalculation == null
+                    ? "text-muted"
+                    : pnlCalculation.net >= 0
+                    ? "text-gain"
+                    : "text-loss"
+                }`}>
+                  {pnlCalculation != null
+                    ? `${pnlCalculation.net >= 0 ? "+" : ""}$${pnlCalculation.net.toFixed(2)} (${pnlCalculation.pct >= 0 ? "+" : ""}${pnlCalculation.pct.toFixed(2)}%)`
+                    : "— (Open)"}
+                </span>
+              </div>
+
+              {/* R:R Ratio */}
+              <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
+                <span className="text-[10px] text-muted font-mono uppercase">R:R Ratio</span>
+                <span className={`font-mono font-semibold ${
+                  rrCalculation == null
+                    ? "text-muted"
+                    : rrCalculation >= 1
+                    ? "text-gain"
+                    : "text-amber-400"
+                }`}>
+                  {rrCalculation != null ? `1 : ${rrCalculation.toFixed(2)}R` : "—"}
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Target Presets if stop price is defined */}
+            {riskPerUnit != null && riskPerUnit > 0 && (
+              <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted flex-wrap">
+                <span className="text-[10px] font-mono uppercase">Quick Target:</span>
+                <button
+                  type="button"
+                  onClick={() => applyTargetR(1.5)}
+                  className="px-2 py-0.5 rounded bg-panel hover:bg-panel-soft text-text border border-line font-mono text-[10px] cursor-pointer"
+                >
+                  +1.5R
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTargetR(2)}
+                  className="px-2 py-0.5 rounded bg-panel hover:bg-panel-soft text-text border border-line font-mono text-[10px] cursor-pointer"
+                >
+                  +2.0R
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTargetR(3)}
+                  className="px-2 py-0.5 rounded bg-panel hover:bg-panel-soft text-text border border-line font-mono text-[10px] cursor-pointer"
+                >
+                  +3.0R
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyTargetR(4)}
+                  className="px-2 py-0.5 rounded bg-panel hover:bg-panel-soft text-text border border-line font-mono text-[10px] cursor-pointer"
+                >
+                  +4.0R
+                </button>
+              </div>
+            )}
+
+            {/* Expandable Position Size Calculator */}
+            {showSizeCalc && (
+              <div className="p-2.5 rounded-lg bg-accent/5 border border-accent/20 flex flex-col gap-2 mt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-accent">Position Size Calculator</span>
+                  <span className="text-[10px] text-muted">Formula: Risk $ ÷ |Entry − Stop|</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <span>Max Risk: $</span>
+                    <input
+                      type="number"
+                      value={riskBudget}
+                      onChange={(e) => setRiskBudget(e.target.value)}
+                      className="w-20 px-2 py-1 rounded bg-panel border border-line text-text font-mono text-xs focus:outline-none focus:border-accent"
+                      placeholder="50"
+                    />
+                  </label>
+                  {calculatedSizeFromRisk != null ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-text font-mono">
+                        = <span className="font-bold text-accent">{calculatedSizeFromRisk > 1 ? calculatedSizeFromRisk.toFixed(2) : calculatedSizeFromRisk.toPrecision(4)}</span> units
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const formatted = calculatedSizeFromRisk > 1
+                            ? calculatedSizeFromRisk.toFixed(2)
+                            : calculatedSizeFromRisk.toPrecision(4);
+                          setSize(formatted);
+                        }}
+                        className="px-2.5 py-1 rounded-md bg-accent text-panel font-bold text-[10px] hover:brightness-110 cursor-pointer transition-all"
+                      >
+                        Apply Size
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-muted italic">
+                      Enter valid entry & stop price above to calculate size
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

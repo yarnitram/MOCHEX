@@ -58,6 +58,33 @@ export interface TradeNotes {
   screenshot_url: string | null;
 }
 
+export interface ArchivedJournalTrade {
+  id: string;
+  user_id?: string;
+  account_id: string | null;
+  trade_id?: string | null;
+  original_trade_id?: string | null;
+  symbol: string;
+  direction: Direction;
+  entry_price: number;
+  exit_price: number | null;
+  size: number;
+  stop_price: number | null;
+  fees: number;
+  entry_time: string;
+  exit_time: string | null;
+  status: TradeStatus;
+  pnl_dollars?: number | null;
+  pnl_pct?: number | null;
+  r_multiple?: number | null;
+  tags?: Tag[] | string[];
+  notes?: TradeNotes | string | null;
+  discipline_score?: number | null;
+  archived_at: string;
+  archived_reason?: string;
+  created_at?: string;
+}
+
 export interface RiskSettings {
   account_id: string;
   max_daily_loss: number | null;
