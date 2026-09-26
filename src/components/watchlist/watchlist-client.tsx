@@ -28,6 +28,7 @@ interface Props {
   initialItems: WatchlistItem[];
   initialTriggeredItems?: TriggeredWatchlistItem[];
   initialArchivedItems?: ArchivedWatchlistItem[];
+  initialTriggeredTableMissing?: boolean;
   refreshIntervalSec?: number;
 }
 
@@ -37,6 +38,7 @@ export function WatchlistClient({
   initialItems,
   initialTriggeredItems = [],
   initialArchivedItems = [],
+  initialTriggeredTableMissing = false,
   refreshIntervalSec = 10,
 }: Props) {
   const [items, setItems] = useState<WatchlistItem[]>(initialItems);
@@ -45,6 +47,9 @@ export function WatchlistClient({
   );
   const [archivedItems, setArchivedItems] = useState<ArchivedWatchlistItem[]>(
     initialArchivedItems
+  );
+  const [isTriggeredTableMissing, setIsTriggeredTableMissing] = useState<boolean>(
+    initialTriggeredTableMissing
   );
   const [activeTab, setActiveTab] = useState<"active" | "triggered" | "archive">(
     "active"
@@ -188,6 +193,41 @@ export function WatchlistClient({
     return () => clearTimeout(t);
   }, []);
 
+  // Hydrate local triggered cache (for resilience if remote table is missing)
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem("mochex_triggered_items_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached) as TriggeredWatchlistItem[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setTriggeredItems((prev) => {
+            const existingIds = new Set(prev.map((x) => x.id));
+            const toAdd = parsed.filter((x) => !existingIds.has(x.id));
+            return [...toAdd, ...prev];
+          });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Sync triggered items to local cache whenever state changes
+  useEffect(() => {
+    try {
+      if (triggeredItems.length > 0) {
+        localStorage.setItem(
+          "mochex_triggered_items_cache",
+          JSON.stringify(triggeredItems.slice(0, 100))
+        );
+      } else {
+        localStorage.removeItem("mochex_triggered_items_cache");
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [triggeredItems]);
+
   // ---- Effect: background trigger checking + triggered list sync ----
 
   useEffect(() => {
@@ -197,7 +237,11 @@ export function WatchlistClient({
     fetch("/api/triggered-watchlist")
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled && data?.items) {
+        if (cancelled) return;
+        if (data?.tableMissing) {
+          setIsTriggeredTableMissing(true);
+        } else if (Array.isArray(data?.items)) {
+          setIsTriggeredTableMissing(false);
           setTriggeredItems(data.items as TriggeredWatchlistItem[]);
         }
       })
@@ -303,10 +347,44 @@ export function WatchlistClient({
             }
 
             // 2. Move to triggered archive table
-            const trigRes = await fetch("/api/triggered-watchlist", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
+            let trigItem: TriggeredWatchlistItem | null = null;
+            try {
+              const trigRes = await fetch("/api/triggered-watchlist", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  source_item_id: item.id,
+                  symbol: sym,
+                  trigger_price: triggerPrice,
+                  trigger_direction: item.trigger_direction,
+                  fired_price: lastPrice,
+                  entry_price: item.entry_price,
+                  stop_loss: item.stop_loss,
+                  take_profit: item.take_profit,
+                  order_type: item.order_type,
+                  notes: item.notes,
+                  fired_at: nowIso,
+                }),
+              });
+
+              if (trigRes.ok) {
+                const resData = await trigRes.json();
+                if (resData?.tableMissing) {
+                  setIsTriggeredTableMissing(true);
+                }
+                if (resData?.item) {
+                  trigItem = resData.item;
+                }
+              }
+            } catch {
+              // ignore network failure
+            }
+
+            // Fallback: If remote API failed or unmigrated, synthesize item so user NEVER loses it
+            if (!trigItem) {
+              trigItem = {
+                id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                user_id: "",
                 source_item_id: item.id,
                 symbol: sym,
                 trigger_price: triggerPrice,
@@ -318,19 +396,17 @@ export function WatchlistClient({
                 order_type: item.order_type,
                 notes: item.notes,
                 fired_at: nowIso,
-              }),
-            });
-
-            if (trigRes.ok) {
-              const { item: trigItem } = await trigRes.json();
-              setTriggeredItems((prev) => [
-                trigItem,
-                ...prev.filter((x) => x.id !== trigItem.id),
-              ]);
+                created_at: nowIso,
+              };
             }
 
+            setTriggeredItems((prev) => [
+              trigItem!,
+              ...prev.filter((x) => x.id !== trigItem!.id),
+            ]);
+
             // 3. Remove from active watchlist after trade log and triggered archive have completed
-            await fetch(`/api/watchlist/${item.id}`, { method: "DELETE" });
+            await fetch(`/api/watchlist/${item.id}`, { method: "DELETE" }).catch(() => {});
             setItems((prev) => prev.filter((x) => x.id !== item.id));
           }
         } catch {
@@ -531,6 +607,7 @@ export function WatchlistClient({
       {activeTab === "triggered" ? (
         <WatchlistTriggeredTab
           triggeredItems={triggeredItems}
+          isTableMissing={isTriggeredTableMissing}
           icons={icons}
           onItemRestored={(restored, triggeredId) => {
             setItems((prev) => [...prev, restored]);

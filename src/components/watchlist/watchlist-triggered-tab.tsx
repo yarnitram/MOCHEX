@@ -5,8 +5,42 @@ import type { TriggeredWatchlistItem, WatchlistItem, ArchivedWatchlistItem } fro
 import { cleanSymbol, fmtPx, fmtPlanPx, mexcChartUrl } from "@/lib/format";
 import { ChartModal } from "@/components/charts/chart-modal";
 
+const MIGRATION_SQL = `-- Migration 012: triggered_watchlist_items
+create table if not exists triggered_watchlist_items (
+  id                uuid        primary key default gen_random_uuid(),
+  user_id           uuid        references auth.users not null,
+  source_item_id    uuid,
+  symbol            text        not null,
+  trigger_price     numeric(18,7),
+  trigger_direction text        check (trigger_direction in ('above','below')),
+  fired_price       numeric(18,7),
+  entry_price       numeric(18,7),
+  stop_loss         numeric(18,7),
+  take_profit       numeric(18,7),
+  order_type        text        check (order_type in ('limit','trigger_limit','market')),
+  notes             text,
+  fired_at          timestamptz not null default now(),
+  created_at        timestamptz          default now()
+);
+
+alter table triggered_watchlist_items enable row level security;
+
+create policy "triggered_watchlist_select_own"
+  on triggered_watchlist_items for select
+  to authenticated using (auth.uid() = user_id);
+
+create policy "triggered_watchlist_insert_own"
+  on triggered_watchlist_items for insert
+  to authenticated with check (auth.uid() = user_id);
+
+create policy "triggered_watchlist_delete_own"
+  on triggered_watchlist_items for delete
+  to authenticated using (auth.uid() = user_id);
+`;
+
 interface Props {
   triggeredItems: TriggeredWatchlistItem[];
+  isTableMissing?: boolean;
   icons?: Record<string, string>;
   onItemRestored: (item: WatchlistItem, triggeredId: string) => void;
   onItemDeleted: (id: string, archivedItem?: ArchivedWatchlistItem) => void;
@@ -14,6 +48,7 @@ interface Props {
 
 export function WatchlistTriggeredTab({
   triggeredItems,
+  isTableMissing = false,
   icons = {},
   onItemRestored,
   onItemDeleted,
@@ -21,6 +56,13 @@ export function WatchlistTriggeredTab({
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [chartItem, setChartItem] = useState<TriggeredWatchlistItem | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
+
+  const handleCopySql = () => {
+    navigator.clipboard.writeText(MIGRATION_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
 
   const handleMoveBack = async (item: TriggeredWatchlistItem) => {
     if (restoringId) return;
@@ -52,8 +94,10 @@ export function WatchlistTriggeredTab({
 
       const { item: restored } = await res.json();
 
-      // 2. Delete from triggered_watchlist_items
-      await fetch(`/api/triggered-watchlist/${item.id}`, { method: "DELETE" });
+      // 2. Delete from triggered_watchlist_items (if on server)
+      if (!item.id.startsWith("local-")) {
+        await fetch(`/api/triggered-watchlist/${item.id}`, { method: "DELETE" }).catch(() => {});
+      }
 
       onItemRestored(restored, item.id);
     } catch {
@@ -93,34 +137,91 @@ export function WatchlistTriggeredTab({
         archivedItem = a;
       }
 
-      // 2. Remove from triggered_watchlist_items
-      const res = await fetch(`/api/triggered-watchlist/${item.id}`, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
-        onItemDeleted(item.id, archivedItem);
+      // 2. Remove from triggered_watchlist_items (if on server)
+      if (!item.id.startsWith("local-")) {
+        await fetch(`/api/triggered-watchlist/${item.id}`, {
+          method: "DELETE",
+        }).catch(() => {});
       }
+
+      onItemDeleted(item.id, archivedItem);
     } finally {
       setDeletingId(null);
     }
   };
 
+  const tableMissingBanner = isTableMissing && (
+    <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4">
+      <div className="flex items-start gap-2.5">
+        <span className="text-base leading-none mt-0.5">⚠️</span>
+        <div>
+          <p className="font-semibold text-amber-300">
+            Supabase Migration Required for Cloud Sync
+          </p>
+          <p className="text-amber-200/80 text-[11px] mt-0.5 leading-relaxed">
+            Triggered items are currently saved safely in your browser storage. Run migration{" "}
+            <code className="px-1 py-0.5 rounded bg-black/40 text-amber-300 font-mono">
+              012_triggered_watchlist_items
+            </code>{" "}
+            in your Supabase SQL editor to sync across all devices.
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={handleCopySql}
+          className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 font-mono text-[11px] font-medium transition-colors cursor-pointer flex items-center gap-1.5"
+        >
+          {copiedSql ? (
+            <>
+              <svg className="w-3.5 h-3.5 text-gain" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              <span>Copied SQL!</span>
+            </>
+          ) : (
+            <>
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              <span>Copy SQL</span>
+            </>
+          )}
+        </button>
+        <a
+          href="https://supabase.com/dashboard/project/cgsgsvnzysqvzksgapeo/sql/new"
+          target="_blank"
+          rel="noreferrer"
+          className="px-3 py-1.5 rounded-lg bg-panel-soft hover:bg-panel border border-line text-muted hover:text-text font-mono text-[11px] transition-colors flex items-center gap-1"
+        >
+          SQL Editor ↗
+        </a>
+      </div>
+    </div>
+  );
+
   if (triggeredItems.length === 0) {
     return (
-      <div className="py-16 text-center border border-line rounded-xl bg-panel/30">
-        <p className="text-sm font-mono text-muted uppercase tracking-wider mb-1">
-          No triggered tokens
-        </p>
-        <p className="text-xs text-muted/70">
-          When price alerts hit, triggered items will move here automatically.
-        </p>
+      <div className="flex flex-col">
+        {tableMissingBanner}
+        <div className="py-16 text-center border border-line rounded-xl bg-panel/30">
+          <p className="text-sm font-mono text-muted uppercase tracking-wider mb-1">
+            No triggered tokens
+          </p>
+          <p className="text-xs text-muted/70">
+            When price alerts hit, triggered items will move here automatically.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto border border-line rounded-xl bg-panel/40">
+    <div className="flex flex-col">
+      {tableMissingBanner}
+      <div className="overflow-x-auto border border-line rounded-xl bg-panel/40">
       <table className="w-full text-left border-collapse text-xs">
         <thead>
           <tr className="hairline-b bg-panel-soft/60 font-mono text-[10px] uppercase text-muted tracking-wider">
@@ -282,6 +383,7 @@ export function WatchlistTriggeredTab({
           })}
         </tbody>
       </table>
+      </div>
 
       {chartItem && (
         <ChartModal

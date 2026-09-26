@@ -16,8 +16,13 @@ export async function GET() {
     .select("*")
     .order("fired_at", { ascending: false });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ items: data ?? [] });
+  if (error) {
+    if (error.code === "PGRST205" || error.message?.includes("schema cache")) {
+      return NextResponse.json({ items: [], tableMissing: true });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ items: data ?? [], tableMissing: false });
 }
 
 /** POST /api/triggered-watchlist — insert a triggered watchlist item archive row. */
@@ -72,6 +77,28 @@ export async function POST(request: Request) {
     .select("*")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ item: data }, { status: 201 });
+  if (error) {
+    // If the table hasn't been created yet in Supabase, return simulated item so client does not drop it
+    if (error.code === "PGRST205" || error.message?.includes("schema cache")) {
+      const simulatedItem = {
+        id: b.source_item_id ? String(b.source_item_id) : `local-${Date.now()}`,
+        user_id: user.id,
+        source_item_id: b.source_item_id ? String(b.source_item_id) : null,
+        symbol,
+        trigger_price: numOrNull(b.trigger_price),
+        trigger_direction: triggerDirection,
+        fired_price: numOrNull(b.fired_price),
+        entry_price: numOrNull(b.entry_price),
+        stop_loss: numOrNull(b.stop_loss),
+        take_profit: numOrNull(b.take_profit),
+        order_type: orderType,
+        notes: b.notes?.toString() || null,
+        fired_at: b.fired_at ? String(b.fired_at) : new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      };
+      return NextResponse.json({ item: simulatedItem, tableMissing: true }, { status: 200 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  return NextResponse.json({ item: data, tableMissing: false }, { status: 201 });
 }

@@ -18,8 +18,10 @@ export default async function WatchlistPage() {
   let triggered: TriggeredWatchlistItem[] = [];
   let archived: ArchivedWatchlistItem[] = [];
 
+  let isTriggeredTableMissing = false;
+
   if (user) {
-    const [{ data: itemsData }, { data: triggeredData }, { data: archivedData }] =
+    const [{ data: itemsData }, trigResult, { data: archivedData }] =
       await Promise.all([
         supabase
           .from("watchlist_items")
@@ -35,8 +37,14 @@ export default async function WatchlistPage() {
           .order("archived_at", { ascending: false }),
       ]);
     items = (itemsData ?? []) as WatchlistItem[];
-    triggered = (triggeredData ?? []) as TriggeredWatchlistItem[];
+    triggered = (trigResult.data ?? []) as TriggeredWatchlistItem[];
     archived = (archivedData ?? []) as ArchivedWatchlistItem[];
+    if (
+      trigResult.error?.code === "PGRST205" ||
+      trigResult.error?.message?.includes("schema cache")
+    ) {
+      isTriggeredTableMissing = true;
+    }
   }
 
   // Read the user's preferred refresh interval (seconds) so the client can
@@ -60,6 +68,7 @@ export default async function WatchlistPage() {
       initialItems={items}
       initialTriggeredItems={triggered}
       initialArchivedItems={archived}
+      initialTriggeredTableMissing={isTriggeredTableMissing}
       refreshIntervalSec={refreshIntervalSec}
     />
   );

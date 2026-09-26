@@ -17,6 +17,11 @@ export async function DELETE(_request: Request, { params }: Ctx) {
     .delete()
     .eq("id", id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (error) {
+    if (error.code === "PGRST205" || error.message?.includes("schema cache")) {
+      return NextResponse.json({ ok: true, tableMissing: true });
+    }
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
   return NextResponse.json({ ok: true });
 }
