@@ -550,6 +550,7 @@ export function TradeJournal({
           onClose={() => setSelected(null)}
           onDelete={handleDelete}
           onEdit={openEdit}
+          onChart={(t) => setChartTrade(t)}
         />
       )}
 

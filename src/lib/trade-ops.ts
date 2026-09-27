@@ -102,12 +102,14 @@ export async function createTrade(
   // Notes.
   const thesis = input.pre_trade_thesis?.trim();
   const review = input.post_trade_review?.trim();
-  if (thesis || review || input.discipline_score != null) {
+  const screenshot = input.screenshot_url?.trim();
+  if (thesis || review || input.discipline_score != null || screenshot) {
     await supabase.from("trade_notes").insert({
       trade_id: tradeId,
       pre_trade_thesis: thesis || null,
       post_trade_review: review || null,
       discipline_score: input.discipline_score ?? null,
+      screenshot_url: screenshot || null,
     });
   }
 
@@ -165,22 +167,26 @@ export async function updateTrade(
     }
   }
 
-  // Notes: upsert (screenshot is managed by a separate upload endpoint,
-  // so this never touches screenshot_url).
+  // Notes: upsert
   const thesis = input.pre_trade_thesis?.trim();
   const review = input.post_trade_review?.trim();
-  const hasNotes = thesis || review || input.discipline_score != null;
+  const hasNotes =
+    thesis ||
+    review ||
+    input.discipline_score != null ||
+    input.screenshot_url !== undefined;
 
   if (hasNotes) {
-    await supabase.from("trade_notes").upsert(
-      {
-        trade_id: tradeId,
-        pre_trade_thesis: thesis || null,
-        post_trade_review: review || null,
-        discipline_score: input.discipline_score ?? null,
-      },
-      { onConflict: "trade_id" }
-    );
+    const updateObj: Record<string, unknown> = {
+      trade_id: tradeId,
+      pre_trade_thesis: thesis || null,
+      post_trade_review: review || null,
+      discipline_score: input.discipline_score ?? null,
+    };
+    if (input.screenshot_url !== undefined) {
+      updateObj.screenshot_url = input.screenshot_url ? input.screenshot_url.trim() : null;
+    }
+    await supabase.from("trade_notes").upsert(updateObj, { onConflict: "trade_id" });
   } else if (input.clearNotes) {
     // Explicitly remove notes (keep the trade).
     await supabase.from("trade_notes").delete().eq("trade_id", tradeId);

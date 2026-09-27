@@ -45,6 +45,12 @@ export async function PUT(request: Request, { params }: Ctx) {
           ? Math.min(5, Math.max(1, Math.round(toNum(b.discipline_score))))
           : null,
       clearNotes: Boolean(b.clearNotes),
+      screenshot_url:
+        b.screenshot_url !== undefined
+          ? b.screenshot_url
+            ? String(b.screenshot_url)
+            : null
+          : undefined,
     };
 
     await updateTrade(supabase, id, input);

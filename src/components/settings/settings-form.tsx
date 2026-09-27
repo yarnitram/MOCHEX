@@ -35,6 +35,9 @@ interface Props {
     proximity_threshold_pct?: number;
     alarm_sound_preset?: string;
     webhook_secret?: string;
+    google_drive_connected?: boolean;
+    google_drive_email?: string | null;
+    screenshot_storage_backend?: "supabase" | "google_drive" | "auto";
   };
 }
 
@@ -79,10 +82,48 @@ export function SettingsForm({ userEmail, initial }: Props) {
   const [audioEnabled, setAudioStateEnabled] = useState(true);
   const [audioVolume, setAudioStateVolume] = useState(0.5);
 
+  // ---- Google Drive Screenshot Storage State ----
+  const [gdriveConnected, setGdriveConnected] = useState(initial.google_drive_connected ?? false);
+  const [gdriveEmail, setGdriveEmail] = useState(initial.google_drive_email ?? null);
+  const [disconnectingGdrive, setDisconnectingGdrive] = useState(false);
+
   useEffect(() => {
     setAudioStateEnabled(isAudioEnabled());
     setAudioStateVolume(getAudioVolume());
+
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("gdrive") === "connected") {
+        setStatus("Google Drive connected successfully! All new screenshots will save directly to your Drive ✓");
+        setGdriveConnected(true);
+      }
+      if (params.get("error")) {
+        setError(params.get("error"));
+      }
+    }
   }, []);
+
+  async function handleDisconnectGdrive() {
+    if (!window.confirm("Disconnect your Google Drive account? New screenshots will save to Supabase storage.")) {
+      return;
+    }
+    setDisconnectingGdrive(true);
+    try {
+      const res = await fetch("/api/auth/google-drive/disconnect", { method: "POST" });
+      if (res.ok) {
+        setGdriveConnected(false);
+        setGdriveEmail(null);
+        setStatus("Google Drive disconnected successfully ✓");
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error || "Failed to disconnect Google Drive");
+      }
+    } catch {
+      setError("Failed to disconnect Google Drive");
+    } finally {
+      setDisconnectingGdrive(false);
+    }
+  }
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1090,6 +1131,75 @@ export function SettingsForm({ userEmail, initial }: Props) {
                 🛑 Stop Loss Hit
               </button>
             </div>
+          </div>
+        </fieldset>
+
+        {/* Screenshot Storage & Google Drive Backend */}
+        <fieldset className="border border-line rounded-lg p-4 sm:p-5 flex flex-col gap-4 bg-panel/40">
+          <legend className="px-1 text-xs uppercase tracking-wider font-semibold text-text font-mono flex items-center gap-1.5">
+            <span>💾</span>
+            <span>Screenshot Storage &amp; Google Drive</span>
+          </legend>
+
+          <div className="flex flex-col gap-1.5">
+            <p className="text-xs text-muted leading-relaxed">
+              Save your Supabase storage quota by saving trade chart screenshots directly to your personal <span className="text-text font-semibold">15 GB free Google Drive</span>.
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-line bg-panel-soft/40 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-lg bg-canvas border border-line flex items-center justify-center text-lg">
+                📁
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-text">Google Drive Cloud Storage</span>
+                  {gdriveConnected ? (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-gain/15 text-gain border border-gain/20">
+                      ✓ Connected
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-panel text-muted border border-line">
+                      Not Connected
+                    </span>
+                  )}
+                </div>
+                <span className="text-[11px] text-muted">
+                  {gdriveConnected && gdriveEmail
+                    ? `Connected as ${gdriveEmail} · 0 bytes used on Supabase`
+                    : "Connect to save 100% of Supabase storage quota"}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto">
+              {gdriveConnected ? (
+                <button
+                  type="button"
+                  onClick={handleDisconnectGdrive}
+                  disabled={disconnectingGdrive}
+                  className="px-3 py-1.5 text-xs text-loss hover:bg-loss/10 border border-loss/20 rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {disconnectingGdrive ? "Disconnecting…" : "Disconnect"}
+                </button>
+              ) : (
+                <a
+                  href="/api/auth/google-drive"
+                  className="accent-btn px-3.5 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <span>🔗</span>
+                  <span>Connect Google Drive</span>
+                </a>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-line/60 bg-canvas/50 p-3 text-[11px] text-muted flex flex-col gap-1.5">
+            <span className="text-text font-medium">💡 Zero-Setup Alternative:</span>
+            <span>
+              You don&apos;t even need to connect an account! You can paste any public Google Drive sharing link (<code className="text-accent text-[10px]">https://drive.google.com/file/d/...</code>) directly into any trade, and Mochex will automatically render it as a direct image.
+            </span>
           </div>
         </fieldset>
 

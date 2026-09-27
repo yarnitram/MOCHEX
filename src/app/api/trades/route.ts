@@ -65,6 +65,7 @@ export async function POST(request: Request) {
         b.discipline_score != null && b.discipline_score !== ""
           ? Math.min(5, Math.max(1, Math.round(toNum(b.discipline_score))))
           : null,
+      screenshot_url: b.screenshot_url ? String(b.screenshot_url) : null,
     };
 
     if (!input.symbol || !input.entry_time) {

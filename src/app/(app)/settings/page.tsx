@@ -38,6 +38,9 @@ export default async function SettingsPage() {
     notify_desktop?: boolean;
     refresh_interval_sec?: number | null;
     webhook_secret?: string | null;
+    google_drive_connected?: boolean | null;
+    google_drive_email?: string | null;
+    screenshot_storage_backend?: "supabase" | "google_drive" | "auto" | null;
   } | null);
 
   let webhookSecret = d?.webhook_secret;
@@ -84,6 +87,9 @@ export default async function SettingsPage() {
           notify_desktop: d?.notify_desktop ?? true,
           refresh_interval_sec: d?.refresh_interval_sec ?? 10,
           webhook_secret: webhookSecret,
+          google_drive_connected: d?.google_drive_connected ?? false,
+          google_drive_email: d?.google_drive_email ?? null,
+          screenshot_storage_backend: d?.screenshot_storage_backend ?? "auto",
         }}
       />
 

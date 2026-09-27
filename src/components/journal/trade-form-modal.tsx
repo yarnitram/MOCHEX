@@ -5,6 +5,7 @@ import type { Tag, TradeWithExtras } from "@/lib/types";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { CoinPicker, type SelectedCoin } from "@/components/ui/coin-picker";
 import { fmtPx } from "@/lib/format";
+import { normalizeScreenshotUrl, getImageFromClipboard } from "@/lib/screenshot-helpers";
 
 interface Props {
   trade: TradeWithExtras | null;
@@ -65,6 +66,11 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
       : ""
   );
 
+  const [screenshotUrl, setScreenshotUrl] = useState<string>(
+    trade?.notes?.screenshot_url ? normalizeScreenshotUrl(trade.notes.screenshot_url) : ""
+  );
+  const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
+
   const [selectedTags, setSelectedTags] = useState<string[]>(
     trade?.tags.map((t) => t.name) ?? []
   );
@@ -75,6 +81,56 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   // Position Size Calculator helper state
   const [showSizeCalc, setShowSizeCalc] = useState(false);
   const [riskBudget, setRiskBudget] = useState("50"); // default $50 risk budget
+
+  // Upload screenshot file directly (automatically routes to Google Drive if connected!)
+  async function handleUploadScreenshot(file: File) {
+    setUploadingScreenshot(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("tradeId", trade?.id || `new-${Date.now()}`);
+
+      const res = await fetch("/api/trades/screenshot", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error || "Failed to upload screenshot");
+      }
+
+      const data = await res.json();
+      setScreenshotUrl(data.url);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setUploadingScreenshot(false);
+    }
+  }
+
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) handleUploadScreenshot(file);
+    e.target.value = "";
+  }
+
+  // Listen for Ctrl+V paste while modal is open
+  useEffect(() => {
+    function handlePaste(e: ClipboardEvent) {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+
+      const file = getImageFromClipboard(e);
+      if (file) {
+        e.preventDefault();
+        handleUploadScreenshot(file);
+      }
+    }
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [trade?.id]);
 
   // Numerical values derived from inputs for live auto-calculations
   const numEntry = Number(entryPrice);
@@ -253,6 +309,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
           pre_trade_thesis: thesis.trim() || null,
           post_trade_review: review.trim() || null,
           discipline_score: discipline.trim() === "" ? null : Number(discipline),
+          screenshot_url: screenshotUrl.trim() ? normalizeScreenshotUrl(screenshotUrl) : null,
         },
         trade?.id
       );
@@ -700,7 +757,78 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
           </div>
         </div>
 
-        {/* 7. Action Buttons */}
+        {/* 7. Screenshot Attachment & Google Drive */}
+        <div className="flex flex-col gap-2 hairline-t pt-3">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
+              Chart Screenshot (Google Drive / Upload)
+            </span>
+            <span className="text-[10px] text-muted font-mono">
+              Press <kbd className="px-1 py-0.5 rounded bg-canvas border border-line text-[9px]">Ctrl+V</kbd> to paste
+            </span>
+          </div>
+
+          {screenshotUrl ? (
+            <div className="flex items-center gap-3 p-2.5 rounded-xl border border-line bg-panel-soft/50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={screenshotUrl}
+                alt="Screenshot thumbnail"
+                className="w-16 h-12 object-cover rounded-lg border border-line"
+              />
+              <div className="flex flex-col flex-1 min-w-0">
+                <span className="text-xs font-semibold text-text truncate">
+                  Screenshot attached ✓
+                </span>
+                <span className="text-[10px] text-muted font-mono truncate">
+                  {screenshotUrl}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setScreenshotUrl("")}
+                className="text-xs text-loss hover:underline cursor-pointer px-2"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-xs btn-ghost px-3 py-2 rounded-xl cursor-pointer border border-line hover:border-accent transition-colors whitespace-nowrap">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="17 8 12 3 7 8" />
+                    <line x1="12" y1="3" x2="12" y2="15" />
+                  </svg>
+                  <span>{uploadingScreenshot ? "Uploading…" : "+ Upload File"}</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileInputChange}
+                    className="hidden"
+                    disabled={uploadingScreenshot}
+                  />
+                </label>
+
+                <div className="relative flex-1">
+                  <input
+                    type="url"
+                    value={screenshotUrl}
+                    onChange={(e) => setScreenshotUrl(e.target.value)}
+                    placeholder="Or paste Google Drive / image link..."
+                    className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent font-mono"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-muted">
+                Tip: Paste any Google Drive link (<code className="text-accent">drive.google.com/file/d/...</code>) to save 100% of Supabase storage quota!
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* 8. Action Buttons */}
         <div className="flex justify-between items-center pt-2 border-t border-line">
           <button
             type="button"

@@ -115,6 +115,10 @@ export interface UserSettings {
   notify_telegram: boolean;
   notify_desktop: boolean;
   refresh_interval_sec: number;
+  google_drive_connected?: boolean;
+  google_drive_email?: string | null;
+  google_drive_refresh_token?: string | null;
+  screenshot_storage_backend?: "supabase" | "google_drive" | "auto";
 }
 
 export interface PublicShareItem {
