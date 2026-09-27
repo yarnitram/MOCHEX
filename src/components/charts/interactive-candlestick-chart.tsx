@@ -236,6 +236,7 @@ export function InteractiveCandlestickChart({
   const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
   const candlesRef = useRef<CandleData[]>([]);
+  const isDisposedRef = useRef<boolean>(false);
 
   // Multi-EMA line series refs (User-specified: 20, 50, 100, 200, white/blue/yellow/orange)
   const ema20SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
@@ -354,7 +355,7 @@ export function InteractiveCandlestickChart({
 
   // 1-Click Chart Snapshot (PNG Camera Export)
   const captureSnapshot = async () => {
-    if (!chartContainerRef.current) return;
+    if (isDisposedRef.current || !chartContainerRef.current) return;
     try {
       setIsCapturing(true);
       const dataUrl = await toPng(chartContainerRef.current, {
@@ -362,6 +363,7 @@ export function InteractiveCandlestickChart({
         backgroundColor: "#0c0a17",
         pixelRatio: 2,
       });
+      if (isDisposedRef.current) return;
       const link = document.createElement("a");
       const dateStr = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       link.download = `MOCHEX_${cleanSym}_${klineInterval}_${dateStr}.png`;
@@ -370,14 +372,16 @@ export function InteractiveCandlestickChart({
     } catch (err) {
       console.error("Failed to capture chart snapshot:", err);
     } finally {
-      setIsCapturing(false);
+      if (!isDisposedRef.current) {
+        setIsCapturing(false);
+      }
     }
   };
 
   // Candle Close Countdown Timer
   useEffect(() => {
     const updateCountdown = () => {
-      if (!lastCandle) return;
+      if (isDisposedRef.current || !lastCandle) return;
       const step = getIntervalSeconds(klineInterval, candlesRef.current);
       const openTime = Number(lastCandle.time);
       const closeTime = openTime + step;
@@ -405,6 +409,7 @@ export function InteractiveCandlestickChart({
   const fetchCandles = useCallback(
     async (isSilentRefresh = false) => {
       try {
+        if (isDisposedRef.current) return;
         if (!isSilentRefresh) {
           setLoading(true);
         }
@@ -413,7 +418,9 @@ export function InteractiveCandlestickChart({
         const res = await fetch(
           `/api/mexc/kline?symbol=${encodeURIComponent(symbol)}&interval=${klineInterval}`
         );
+        if (isDisposedRef.current) return;
         const json = await res.json();
+        if (isDisposedRef.current) return;
 
         if (!json.success || !Array.isArray(json.candles)) {
           throw new Error(json.error || "Failed to load candlestick chart data");
@@ -426,9 +433,11 @@ export function InteractiveCandlestickChart({
         }
 
         candlesRef.current = candles;
-        setLastCandle(candles[candles.length - 1]);
+        if (!isDisposedRef.current) {
+          setLastCandle(candles[candles.length - 1]);
+        }
 
-        if (candlestickSeriesRef.current && volumeSeriesRef.current) {
+        if (candlestickSeriesRef.current && volumeSeriesRef.current && !isDisposedRef.current) {
           // Format candlestick data
           const candleData = candles.map((c) => ({
             time: c.time as Time,
@@ -449,22 +458,25 @@ export function InteractiveCandlestickChart({
           }));
 
           try {
+            if (isDisposedRef.current || !candlestickSeriesRef.current || !volumeSeriesRef.current) return;
             candlestickSeriesRef.current.setData(candleData);
             volumeSeriesRef.current.setData(volumeData);
 
             // Populate EMA series with mathematical calculations
-            if (ema20SeriesRef.current) ema20SeriesRef.current.setData(calculateEMA(candles, 20));
-            if (ema50SeriesRef.current) ema50SeriesRef.current.setData(calculateEMA(candles, 50));
-            if (ema100SeriesRef.current) ema100SeriesRef.current.setData(calculateEMA(candles, 100));
-            if (ema200SeriesRef.current) ema200SeriesRef.current.setData(calculateEMA(candles, 200));
+            if (ema20SeriesRef.current && !isDisposedRef.current) ema20SeriesRef.current.setData(calculateEMA(candles, 20));
+            if (ema50SeriesRef.current && !isDisposedRef.current) ema50SeriesRef.current.setData(calculateEMA(candles, 50));
+            if (ema100SeriesRef.current && !isDisposedRef.current) ema100SeriesRef.current.setData(calculateEMA(candles, 100));
+            if (ema200SeriesRef.current && !isDisposedRef.current) ema200SeriesRef.current.setData(calculateEMA(candles, 200));
 
             // Re-evaluate custom formula script if active
             try {
-              const savedScript = localStorage.getItem(`mochex_custom_script_${cleanSym}`) || customScript;
-              if (savedScript && candles.length > 0) {
-                const res = executeChartScript(savedScript, candles);
-                if (res.success) {
-                  setCustomPlots(res.plots);
+              if (!isDisposedRef.current) {
+                const savedScript = localStorage.getItem(`mochex_custom_script_${cleanSym}`) || customScript;
+                if (savedScript && candles.length > 0) {
+                  const res = executeChartScript(savedScript, candles);
+                  if (res.success && !isDisposedRef.current) {
+                    setCustomPlots(res.plots);
+                  }
                 }
               }
             } catch (err) {
@@ -472,8 +484,10 @@ export function InteractiveCandlestickChart({
             }
 
             // Only fit content on initial load or timeframe switch, preserving user zoom/scroll
-            if (chartRef.current && isFirstLoadRef.current) {
-              chartRef.current.timeScale().fitContent();
+            if (chartRef.current && isFirstLoadRef.current && !isDisposedRef.current) {
+              try {
+                chartRef.current.timeScale().fitContent();
+              } catch {}
               isFirstLoadRef.current = false;
             }
           } catch (e) {
@@ -481,19 +495,22 @@ export function InteractiveCandlestickChart({
           }
         }
       } catch (err) {
-        if (!isSilentRefresh) {
+        if (!isSilentRefresh && !isDisposedRef.current) {
           setError((err as Error).message);
         }
       } finally {
-        setLoading(false);
+        if (!isDisposedRef.current) {
+          setLoading(false);
+        }
       }
     },
-    [symbol, klineInterval, cleanSym]
+    [symbol, klineInterval, cleanSym, customScript]
   );
 
   // Initialize TradingView chart instance once on mount
   useEffect(() => {
     if (!chartContainerRef.current) return;
+    isDisposedRef.current = false;
 
     // Create lightweight-chart instance with MOCHEX dark aesthetic
     const chart = createChart(chartContainerRef.current, {
@@ -603,16 +620,19 @@ export function InteractiveCandlestickChart({
 
     // Re-render SVG drawing overlays whenever chart pans or zooms
     chart.timeScale().subscribeVisibleTimeRangeChange(() => {
+      if (isDisposedRef.current) return;
       setRenderTick((t) => t + 1);
     });
 
     // Deselect drawing when clicking empty chart canvas
     chart.subscribeClick(() => {
+      if (isDisposedRef.current) return;
       setSelectedId(null);
     });
 
     // Crosshair move handler for legend tooltip
     chart.subscribeCrosshairMove((param) => {
+      if (isDisposedRef.current) return;
       try {
         if (
           param.point === undefined ||
@@ -633,7 +653,7 @@ export function InteractiveCandlestickChart({
           } | undefined;
           const volData = param.seriesData.get(volumeSeries) as { value: number } | undefined;
 
-          if (data) {
+          if (data && !isDisposedRef.current) {
             setHoverData({
               time: Number(param.time),
               open: data.open,
@@ -645,7 +665,9 @@ export function InteractiveCandlestickChart({
           }
         }
       } catch {
-        setHoverData(null);
+        if (!isDisposedRef.current) {
+          setHoverData(null);
+        }
       }
     });
 
@@ -653,11 +675,16 @@ export function InteractiveCandlestickChart({
     let resizeObserver: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined" && chartContainerRef.current) {
       resizeObserver = new ResizeObserver((entries) => {
+        if (isDisposedRef.current || !chartRef.current) return;
         if (!entries || entries.length === 0) return;
         const width = Math.floor(entries[0].contentRect.width);
-        if (width > 0 && chartRef.current) {
-          chartRef.current.applyOptions({ width });
-          setRenderTick((t) => t + 1);
+        if (width > 0 && chartRef.current && !isDisposedRef.current) {
+          try {
+            chartRef.current.applyOptions({ width });
+            setRenderTick((t) => t + 1);
+          } catch {
+            // Chart or canvas might be disposed
+          }
         }
       });
       resizeObserver.observe(chartContainerRef.current);
@@ -665,19 +692,24 @@ export function InteractiveCandlestickChart({
 
     // Fallback window resize handler
     const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
+      if (isDisposedRef.current || !chartRef.current || !chartContainerRef.current) return;
+      try {
         chartRef.current.applyOptions({
           width: chartContainerRef.current.clientWidth,
         });
         setRenderTick((t) => t + 1);
+      } catch {
+        // Chart might be disposed
       }
     };
 
     window.addEventListener("resize", handleResize);
 
     return () => {
+      isDisposedRef.current = true;
       if (resizeObserver) {
         resizeObserver.disconnect();
+        resizeObserver = null;
       }
       window.removeEventListener("resize", handleResize);
       const chartInstance = chartRef.current;
@@ -688,20 +720,12 @@ export function InteractiveCandlestickChart({
       ema50SeriesRef.current = null;
       ema100SeriesRef.current = null;
       ema200SeriesRef.current = null;
-      // Safely detach custom script series
-      customSeriesRefs.current.forEach((series) => {
-        try {
-          chartInstance?.removeSeries(series);
-        } catch {
-          // Ignore if already removed
-        }
-      });
       customSeriesRefs.current = [];
       if (chartInstance) {
         try {
           chartInstance.remove();
         } catch {
-          // Ignore if already removed
+          // Ignore if already removed or disposed
         }
       }
     };
@@ -709,12 +733,14 @@ export function InteractiveCandlestickChart({
 
   // Synchronize dynamic custom formula/indicator script series with chart
   useEffect(() => {
-    if (!chartRef.current) return;
+    if (isDisposedRef.current || !chartRef.current) return;
 
     // Safely remove any previously attached custom script series
     customSeriesRefs.current.forEach((series) => {
       try {
-        chartRef.current?.removeSeries(series);
+        if (!isDisposedRef.current && chartRef.current) {
+          chartRef.current.removeSeries(series);
+        }
       } catch {
         // Series might be disposed already
       }
@@ -722,10 +748,11 @@ export function InteractiveCandlestickChart({
     customSeriesRefs.current = [];
 
     // Add new series for each custom plot
-    if (customPlots && customPlots.length > 0) {
+    if (customPlots && customPlots.length > 0 && !isDisposedRef.current && chartRef.current) {
       customPlots.forEach((plot) => {
         try {
-          const series = chartRef.current!.addSeries(LineSeries, {
+          if (isDisposedRef.current || !chartRef.current) return;
+          const series = chartRef.current.addSeries(LineSeries, {
             color: plot.color,
             lineWidth: (plot.lineWidth || 2) as 1 | 2 | 3 | 4,
             title: plot.title,
@@ -743,14 +770,16 @@ export function InteractiveCandlestickChart({
 
   // Dynamically apply height changes without disposing/recreating the chart
   useEffect(() => {
-    if (chartRef.current && height) {
+    if (isDisposedRef.current || !chartRef.current || !height) return;
+    try {
       chartRef.current.applyOptions({ height });
       setRenderTick((t) => t + 1);
-    }
+    } catch {}
   }, [height]);
 
   // Dynamically toggle EMA visibility
   useEffect(() => {
+    if (isDisposedRef.current) return;
     try {
       ema20SeriesRef.current?.applyOptions({ visible: activeEmas.ema20 });
       ema50SeriesRef.current?.applyOptions({ visible: activeEmas.ema50 });
@@ -763,110 +792,133 @@ export function InteractiveCandlestickChart({
   useEffect(() => {
     isFirstLoadRef.current = true;
     fetchCandles(false);
-    const timer = setInterval(() => fetchCandles(true), 10_000); // Silent background auto-refresh
+    const timer = setInterval(() => {
+      if (!isDisposedRef.current) {
+        fetchCandles(true);
+      }
+    }, 10_000); // Silent background auto-refresh
     return () => clearInterval(timer);
   }, [fetchCandles]);
 
   // Handle drawing trade overlay lines on candlestick series
   useEffect(() => {
+    if (isDisposedRef.current) return;
     const series = candlestickSeriesRef.current;
     if (!series) return;
 
     const lines: Array<{ remove: () => void }> = [];
 
-    if (showSetup && setup) {
-      // 1. Trigger Price Line
-      if (setup.trigger_price && setup.trigger_price > 0) {
-        const line = series.createPriceLine({
-          price: setup.trigger_price,
-          color: "#f59e0b", // Amber/Orange
-          lineWidth: 2,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `⚡ TRIGGER: ${fmtPx(setup.trigger_price)}`,
-        });
-        lines.push({
-          remove: () => {
-            try {
-              series.removePriceLine(line);
-            } catch {}
-          },
-        });
-      }
-
-      // 2. Entry Price Line
-      if (setup.entry_price && setup.entry_price > 0) {
-        const line = series.createPriceLine({
-          price: setup.entry_price,
-          color: "#8b5cf6", // Mochex Violet
-          lineWidth: 2,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `🎯 ENTRY: ${fmtPx(setup.entry_price)}`,
-        });
-        lines.push({
-          remove: () => {
-            try {
-              series.removePriceLine(line);
-            } catch {}
-          },
-        });
-      }
-
-      // 3. Stop Loss Line
-      if (setup.stop_loss && setup.stop_loss > 0) {
-        let riskPctStr = "";
-        const basePx = setup.entry_price || setup.trigger_price;
-        if (basePx && basePx > 0) {
-          const diff = Math.abs(setup.stop_loss - basePx);
-          const pct = (diff / basePx) * 100;
-          riskPctStr = ` (-${pct.toFixed(2)}%)`;
+    try {
+      if (showSetup && setup && !isDisposedRef.current) {
+        // 1. Trigger Price Line
+        if (setup.trigger_price && setup.trigger_price > 0) {
+          try {
+            const line = series.createPriceLine({
+              price: setup.trigger_price,
+              color: "#f59e0b", // Amber/Orange
+              lineWidth: 2,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: `⚡ TRIGGER: ${fmtPx(setup.trigger_price)}`,
+            });
+            lines.push({
+              remove: () => {
+                try {
+                  if (!isDisposedRef.current && series) {
+                    series.removePriceLine(line);
+                  }
+                } catch {}
+              },
+            });
+          } catch {}
         }
 
-        const line = series.createPriceLine({
-          price: setup.stop_loss,
-          color: "#fb7185", // Mochex Rose (Loss)
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          axisLabelVisible: true,
-          title: `🛑 SL: ${fmtPx(setup.stop_loss)}${riskPctStr}`,
-        });
-        lines.push({
-          remove: () => {
-            try {
-              series.removePriceLine(line);
-            } catch {}
-          },
-        });
-      }
-
-      // 4. Take Profit Line
-      if (setup.take_profit && setup.take_profit > 0) {
-        let rewardPctStr = "";
-        const basePx = setup.entry_price || setup.trigger_price;
-        if (basePx && basePx > 0) {
-          const diff = Math.abs(setup.take_profit - basePx);
-          const pct = (diff / basePx) * 100;
-          rewardPctStr = ` (+${pct.toFixed(2)}%)`;
+        // 2. Entry Price Line
+        if (setup.entry_price && setup.entry_price > 0) {
+          try {
+            const line = series.createPriceLine({
+              price: setup.entry_price,
+              color: "#8b5cf6", // Mochex Violet
+              lineWidth: 2,
+              lineStyle: LineStyle.Dashed,
+              axisLabelVisible: true,
+              title: `🎯 ENTRY: ${fmtPx(setup.entry_price)}`,
+            });
+            lines.push({
+              remove: () => {
+                try {
+                  if (!isDisposedRef.current && series) {
+                    series.removePriceLine(line);
+                  }
+                } catch {}
+              },
+            });
+          } catch {}
         }
 
-        const line = series.createPriceLine({
-          price: setup.take_profit,
-          color: "#34d399", // Mochex Emerald (Gain)
-          lineWidth: 2,
-          lineStyle: LineStyle.Solid,
-          axisLabelVisible: true,
-          title: `🏁 TP: ${fmtPx(setup.take_profit)}${rewardPctStr}`,
-        });
-        lines.push({
-          remove: () => {
-            try {
-              series.removePriceLine(line);
-            } catch {}
-          },
-        });
+        // 3. Stop Loss Line
+        if (setup.stop_loss && setup.stop_loss > 0) {
+          let riskPctStr = "";
+          const basePx = setup.entry_price || setup.trigger_price;
+          if (basePx && basePx > 0) {
+            const diff = Math.abs(setup.stop_loss - basePx);
+            const pct = (diff / basePx) * 100;
+            riskPctStr = ` (-${pct.toFixed(2)}%)`;
+          }
+
+          try {
+            const line = series.createPriceLine({
+              price: setup.stop_loss,
+              color: "#fb7185", // Mochex Rose (Loss)
+              lineWidth: 2,
+              lineStyle: LineStyle.Solid,
+              axisLabelVisible: true,
+              title: `🛑 SL: ${fmtPx(setup.stop_loss)}${riskPctStr}`,
+            });
+            lines.push({
+              remove: () => {
+                try {
+                  if (!isDisposedRef.current && series) {
+                    series.removePriceLine(line);
+                  }
+                } catch {}
+              },
+            });
+          } catch {}
+        }
+
+        // 4. Take Profit Line
+        if (setup.take_profit && setup.take_profit > 0) {
+          let rewardPctStr = "";
+          const basePx = setup.entry_price || setup.trigger_price;
+          if (basePx && basePx > 0) {
+            const diff = Math.abs(setup.take_profit - basePx);
+            const pct = (diff / basePx) * 100;
+            rewardPctStr = ` (+${pct.toFixed(2)}%)`;
+          }
+
+          try {
+            const line = series.createPriceLine({
+              price: setup.take_profit,
+              color: "#34d399", // Mochex Emerald (Gain)
+              lineWidth: 2,
+              lineStyle: LineStyle.Solid,
+              axisLabelVisible: true,
+              title: `🏁 TP: ${fmtPx(setup.take_profit)}${rewardPctStr}`,
+            });
+            lines.push({
+              remove: () => {
+                try {
+                  if (!isDisposedRef.current && series) {
+                    series.removePriceLine(line);
+                  }
+                } catch {}
+              },
+            });
+          } catch {}
+        }
       }
-    }
+    } catch {}
 
     return () => {
       for (const l of lines) {
@@ -881,7 +933,7 @@ export function InteractiveCandlestickChart({
   const getChartPoint = useCallback(
     (e: React.MouseEvent<Element> | MouseEvent) => {
       try {
-        if (!chartRef.current || !candlestickSeriesRef.current || !chartContainerRef.current)
+        if (isDisposedRef.current || !chartRef.current || !candlestickSeriesRef.current || !chartContainerRef.current)
           return null;
         const rect = chartContainerRef.current.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -920,7 +972,7 @@ export function InteractiveCandlestickChart({
   const toPixelCoords = useCallback(
     (time: number, price: number): { x: number; y: number } | null => {
       try {
-        if (!chartRef.current || !candlestickSeriesRef.current) return null;
+        if (isDisposedRef.current || !chartRef.current || !candlestickSeriesRef.current) return null;
 
         // 1. Convert time to local x coordinate
         let x: number | null = null;
@@ -948,6 +1000,20 @@ export function InteractiveCandlestickChart({
       }
     },
     [klineInterval]
+  );
+
+  // Safe price to coordinate helper for SVG drawings that only need the Y position
+  const safePriceToCoordinate = useCallback(
+    (price: number): number | null => {
+      try {
+        if (isDisposedRef.current || !candlestickSeriesRef.current) return null;
+        const y = candlestickSeriesRef.current.priceToCoordinate(price);
+        return y !== null ? Number(y) : null;
+      } catch {
+        return null;
+      }
+    },
+    []
   );
 
   // Interactive dragging of shapes and handles (window listeners ensure smooth tracking)
@@ -2165,8 +2231,8 @@ export function InteractiveCandlestickChart({
 
               // 4. Horizontal Ray
               if (shape.type === "ray") {
-                if (!candlestickSeriesRef.current || !chartContainerRef.current) return null;
-                const y = candlestickSeriesRef.current.priceToCoordinate(shape.price);
+                if (!chartContainerRef.current) return null;
+                const y = safePriceToCoordinate(shape.price);
                 if (y === null) return null;
 
                 const isSelected = shape.id === selectedId;
@@ -2247,8 +2313,7 @@ export function InteractiveCandlestickChart({
                   <g key={shape.id}>
                     {FIB_LEVELS.map((fib) => {
                       const levelPrice = shape.price1 + priceRange * fib.level;
-                      if (!candlestickSeriesRef.current) return null;
-                      const y = candlestickSeriesRef.current.priceToCoordinate(levelPrice);
+                      const y = safePriceToCoordinate(levelPrice);
                       if (y === null) return null;
 
                       return (
