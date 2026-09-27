@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { isUserAdmin } from "@/lib/admin";
 
 /** GET /api/settings — return the current user's notification settings. */
 export async function GET() {
@@ -58,6 +59,7 @@ export async function GET() {
       proximity_threshold_pct: Number(data?.proximity_threshold_pct ?? 0.5),
       alarm_sound_preset: data?.alarm_sound_preset ?? "radar_ping",
       webhook_secret: webhookSecret,
+      is_admin: isUserAdmin(user, data),
     },
   });
 }

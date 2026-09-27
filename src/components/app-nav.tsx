@@ -20,6 +20,45 @@ export function AppNav() {
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tipModalOpen, setTipModalOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Check admin status
+  useEffect(() => {
+    let mounted = true;
+    async function checkAdminStatus() {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const email = (user.email || "").toLowerCase();
+        const usernameMeta = (user.user_metadata?.username || "").toLowerCase();
+
+        // Fast match on common root username/email
+        if (email.includes("ymatt") || usernameMeta === "ymatt") {
+          if (mounted) setIsAdmin(true);
+          return;
+        }
+
+        // Check user_settings table
+        const { data } = await supabase
+          .from("user_settings")
+          .select("is_admin, username")
+          .eq("user_id", user.id)
+          .maybeSingle();
+
+        if (mounted && (data?.is_admin === true || data?.username?.toLowerCase() === "ymatt")) {
+          setIsAdmin(true);
+        }
+      } catch {
+        // ignore
+      }
+    }
+    checkAdminStatus();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -75,6 +114,20 @@ export function AppNav() {
                 {l.label}
               </Link>
             ))}
+
+            {isAdmin && (
+              <Link
+                href="/admin"
+                className={`px-2.5 py-1 text-xs font-semibold whitespace-nowrap rounded-lg transition-all flex items-center gap-1.5 border ml-1 ${
+                  isActive("/admin")
+                    ? "text-amber-400 bg-amber-500/15 border-amber-500/40 shadow-sm shadow-amber-500/10 font-bold"
+                    : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-400/10 border-amber-500/30"
+                }`}
+              >
+                <span className="text-sm">🛡️</span>
+                <span>Admin</span>
+              </Link>
+            )}
           </nav>
         </div>
 
@@ -174,6 +227,21 @@ export function AppNav() {
             </div>
 
             <div className="hairline-t pt-3 mt-1 flex flex-col gap-2">
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                    isActive("/admin")
+                      ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-md shadow-amber-500/10"
+                      : "bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border-amber-500/30"
+                  }`}
+                >
+                  <span className="text-base">🛡️</span>
+                  <span>Admin Dashboard</span>
+                </Link>
+              )}
+
               <Link
                 href="/settings"
                 onClick={() => setMobileMenuOpen(false)}
