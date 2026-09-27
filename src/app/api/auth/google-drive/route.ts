@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getGoogleAuthUrl, isGoogleDriveConfigured } from "@/lib/google-drive";
+import { getGoogleAuthUrl, isGoogleDriveConfigured, getOAuthRedirectUri } from "@/lib/google-drive";
 
 export async function GET(request: Request) {
   const supabase = await createClient();
@@ -8,19 +8,19 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
 
+  const redirectUri = getOAuthRedirectUri(request);
+  const baseUrl = redirectUri.replace("/api/auth/google-drive/callback", "");
+
   if (!user) {
-    return NextResponse.redirect(new URL("/login?next=/settings", request.url));
+    return NextResponse.redirect(new URL("/login?next=/settings", baseUrl));
   }
 
   if (!isGoogleDriveConfigured()) {
     return NextResponse.redirect(
-      new URL("/settings?error=Google+Drive+is+not+configured+in+environment", request.url)
+      new URL("/settings?error=Google+Drive+is+not+configured+in+environment", baseUrl)
     );
   }
 
-  const { origin } = new URL(request.url);
-  const redirectUri = `${origin}/api/auth/google-drive/callback`;
   const authUrl = getGoogleAuthUrl(redirectUri, user.id);
-
   return NextResponse.redirect(authUrl);
 }

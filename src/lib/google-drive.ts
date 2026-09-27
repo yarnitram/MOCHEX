@@ -10,16 +10,52 @@ const GOOGLE_UPLOAD_ENDPOINT = "https://www.googleapis.com/upload/drive/v3/files
 
 export const GOOGLE_DRIVE_FOLDER_NAME = "Mochex Trade Screenshots";
 
+function getCleanCredentials() {
+  const clientId = (process.env.GOOGLE_CLIENT_ID || "").trim().replace(/^["']|["']$/g, "");
+  const clientSecret = (process.env.GOOGLE_CLIENT_SECRET || "").trim().replace(/^["']|["']$/g, "");
+  return { clientId, clientSecret };
+}
+
 export function isGoogleDriveConfigured(): boolean {
-  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+  const { clientId, clientSecret } = getCleanCredentials();
+  return !!(clientId && clientSecret);
+}
+
+/**
+ * Safely compute the public callback redirect URI.
+ * Guarantees HTTPS for production domains (Google strictly rejects non-HTTPS redirect URIs for non-localhost).
+ */
+export function getOAuthRedirectUri(request: Request): string {
+  // 1. Explicit app URL if set
+  if (process.env.NEXT_PUBLIC_APP_URL) {
+    const base = process.env.NEXT_PUBLIC_APP_URL.trim().replace(/\/$/, "");
+    return `${base}/api/auth/google-drive/callback`;
+  }
+
+  // 2. Request headers from proxy/load balancer (Vercel, Cloudflare, Nginx)
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  const protoHeader = request.headers.get("x-forwarded-proto");
+
+  if (host) {
+    const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
+    // ALWAYS enforce https for production domains even if proxy forwarded as http
+    const protocol = isLocal ? (protoHeader || "http") : "https";
+    return `${protocol}://${host}/api/auth/google-drive/callback`;
+  }
+
+  // 3. Fallback from request.url
+  const url = new URL(request.url);
+  const isLocal = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  const protocol = isLocal ? url.protocol.replace(":", "") : "https";
+  return `${protocol}://${url.host}/api/auth/google-drive/callback`;
 }
 
 /**
  * Generate Google OAuth 2.0 authorization URL.
  */
 export function getGoogleAuthUrl(redirectUri: string, state?: string): string {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  if (!clientId) throw new Error("GOOGLE_CLIENT_ID is not configured in .env.local");
+  const { clientId } = getCleanCredentials();
+  if (!clientId) throw new Error("GOOGLE_CLIENT_ID is not configured in .env.local or environment variables");
 
   const params = new URLSearchParams({
     client_id: clientId,
@@ -38,8 +74,7 @@ export function getGoogleAuthUrl(redirectUri: string, state?: string): string {
  * Exchange authorization code for access and refresh tokens.
  */
 export async function exchangeCodeForTokens(code: string, redirectUri: string) {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const { clientId, clientSecret } = getCleanCredentials();
   if (!clientId || !clientSecret) {
     throw new Error("Google Drive OAuth credentials are not configured in environment");
   }
@@ -89,8 +124,7 @@ export async function getGoogleUserEmail(accessToken: string): Promise<string | 
  * Refresh an expired access token using the stored refresh token.
  */
 export async function refreshGoogleAccessToken(refreshToken: string): Promise<string> {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const { clientId, clientSecret } = getCleanCredentials();
   if (!clientId || !clientSecret) {
     throw new Error("Google Drive OAuth credentials missing");
   }
@@ -99,7 +133,7 @@ export async function refreshGoogleAccessToken(refreshToken: string): Promise<st
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      refresh_token: refreshToken,
+      refresh_token: refreshToken.trim().replace(/^["']|["']$/g, ""),
       client_id: clientId,
       client_secret: clientSecret,
       grant_type: "refresh_token",

@@ -1,15 +1,23 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { exchangeCodeForTokens, getGoogleUserEmail, syncTokenToEnvLocal } from "@/lib/google-drive";
+import {
+  exchangeCodeForTokens,
+  getGoogleUserEmail,
+  syncTokenToEnvLocal,
+  getOAuthRedirectUri,
+} from "@/lib/google-drive";
 
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const { searchParams } = new URL(request.url);
+  const redirectUri = getOAuthRedirectUri(request);
+  const baseUrl = redirectUri.replace("/api/auth/google-drive/callback", "");
+
   const code = searchParams.get("code");
   const error = searchParams.get("error");
 
   if (error || !code) {
     return NextResponse.redirect(
-      new URL(`/settings?error=${encodeURIComponent(error || "Authorization cancelled")}`, origin)
+      new URL(`/settings?error=${encodeURIComponent(error || "Authorization cancelled")}`, baseUrl)
     );
   }
 
@@ -19,11 +27,10 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.redirect(new URL("/login?next=/settings", origin));
+    return NextResponse.redirect(new URL("/login?next=/settings", baseUrl));
   }
 
   try {
-    const redirectUri = `${origin}/api/auth/google-drive/callback`;
     const tokens = await exchangeCodeForTokens(code, redirectUri);
     const email = tokens.access_token ? await getGoogleUserEmail(tokens.access_token) : null;
 
@@ -51,11 +58,11 @@ export async function GET(request: Request) {
 
     const tokenQuery = tokens.refresh_token ? `&token=${encodeURIComponent(tokens.refresh_token)}` : "";
     const emailQuery = email ? `&email=${encodeURIComponent(email)}` : "";
-    return NextResponse.redirect(new URL(`/settings?gdrive=connected_site${emailQuery}${tokenQuery}`, origin));
+    return NextResponse.redirect(new URL(`/settings?gdrive=connected_site${emailQuery}${tokenQuery}`, baseUrl));
   } catch (err) {
     console.error("Google Drive OAuth error:", err);
     return NextResponse.redirect(
-      new URL(`/settings?error=${encodeURIComponent((err as Error).message)}`, origin)
+      new URL(`/settings?error=${encodeURIComponent((err as Error).message)}`, baseUrl)
     );
   }
 }
