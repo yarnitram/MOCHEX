@@ -118,18 +118,46 @@ export function AppNav({ isAdmin: serverIsAdmin }: AppNavProps) {
         <div className="flex items-center gap-1.5 h-full">
           {/* Admin Command Center Badge (strictly for confirmed admins) */}
           {isAdmin && (
-            <Link
-              href="/admin"
-              title="Admin Command Center"
-              className={`hidden sm:flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition-all ${
-                isActive("/admin")
-                  ? "text-amber-400 bg-amber-500/20 border-amber-500/50 shadow-xs shadow-amber-500/20"
-                  : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-400/10 border-amber-500/30"
-              }`}
-            >
-              <span className="text-sm">🛡️</span>
-              <span className="hidden md:inline">Admin</span>
-            </Link>
+            <div className="hidden sm:flex items-center gap-1">
+              <Link
+                href="/admin"
+                title="Admin Command Center"
+                className={`flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition-all ${
+                  isActive("/admin") && !isActive("/admin/bubbles") && !isActive("/admin/bubblemaps")
+                    ? "text-amber-400 bg-amber-500/20 border-amber-500/50 shadow-xs shadow-amber-500/20"
+                    : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-400/10 border-amber-500/30"
+                }`}
+              >
+                <span className="text-sm">🛡️</span>
+                <span className="hidden md:inline">Admin</span>
+              </Link>
+
+              <Link
+                href="/admin/bubbles"
+                title="Market Bubbles (Admin)"
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg border transition-all ${
+                  isActive("/admin/bubbles")
+                    ? "text-emerald-400 bg-emerald-500/20 border-emerald-500/50"
+                    : "text-muted hover:text-text hover:bg-panel-soft border-line"
+                }`}
+              >
+                <span>🫧</span>
+                <span className="hidden xl:inline">Bubbles</span>
+              </Link>
+
+              <Link
+                href="/admin/bubblemaps"
+                title="BubbleMaps & Whale Tracker (Admin)"
+                className={`flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg border transition-all ${
+                  isActive("/admin/bubblemaps")
+                    ? "text-purple-400 bg-purple-500/20 border-purple-500/50"
+                    : "text-muted hover:text-text hover:bg-panel-soft border-line"
+                }`}
+              >
+                <span>🕸️</span>
+                <span className="hidden xl:inline">BubbleMaps</span>
+              </Link>
+            </div>
           )}
 
           <NotificationBell />
@@ -227,18 +255,48 @@ export function AppNav({ isAdmin: serverIsAdmin }: AppNavProps) {
 
             <div className="hairline-t pt-3 mt-1 flex flex-col gap-2">
               {isAdmin && (
-                <Link
-                  href="/admin"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
-                    isActive("/admin")
-                      ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-md shadow-amber-500/10"
-                      : "bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border-amber-500/30"
-                  }`}
-                >
-                  <span className="text-base">🛡️</span>
-                  <span>Admin Dashboard</span>
-                </Link>
+                <>
+                  <Link
+                    href="/admin"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all border ${
+                      isActive("/admin") && !isActive("/admin/bubbles") && !isActive("/admin/bubblemaps")
+                        ? "bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-md shadow-amber-500/10"
+                        : "bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 border-amber-500/30"
+                    }`}
+                  >
+                    <span className="text-base">🛡️</span>
+                    <span>Admin Dashboard</span>
+                  </Link>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <Link
+                      href="/admin/bubbles"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                        isActive("/admin/bubbles")
+                          ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/50"
+                          : "bg-panel-soft/60 text-text hover:bg-panel-soft border-line"
+                      }`}
+                    >
+                      <span className="text-sm">🫧</span>
+                      <span>Bubbles</span>
+                    </Link>
+
+                    <Link
+                      href="/admin/bubblemaps"
+                      onClick={() => setMobileMenuOpen(false)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all border ${
+                        isActive("/admin/bubblemaps")
+                          ? "bg-purple-500/20 text-purple-300 border-purple-500/50"
+                          : "bg-panel-soft/60 text-text hover:bg-panel-soft border-line"
+                      }`}
+                    >
+                      <span className="text-sm">🕸️</span>
+                      <span>BubbleMaps</span>
+                    </Link>
+                  </div>
+                </>
               )}
 
               <Link

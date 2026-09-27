@@ -331,6 +331,24 @@ export function AdminDashboardClient({ currentUserId }: Props) {
             <span>{tab.label}</span>
           </button>
         ))}
+
+        <div className="h-5 w-px bg-line mx-1 shrink-0" />
+
+        <Link
+          href="/admin/bubbles"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 transition-all shrink-0"
+        >
+          <span>🫧</span>
+          <span>Market Bubbles</span>
+        </Link>
+
+        <Link
+          href="/admin/bubblemaps"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/30 transition-all shrink-0"
+        >
+          <span>🕸️</span>
+          <span>BubbleMaps</span>
+        </Link>
       </div>
 
       {/* TAB 1: OVERVIEW & TELEMETRY */}
@@ -491,6 +509,59 @@ export function AdminDashboardClient({ currentUserId }: Props) {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Advanced Visualizations & Whale Intelligence Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Link
+              href="/admin/bubbles"
+              className="group p-5 rounded-2xl bg-panel border border-line hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all shadow-md flex items-start justify-between gap-4"
+            >
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+                    🫧
+                  </span>
+                  <div>
+                    <h3 className="text-base font-bold text-text group-hover:text-emerald-400 transition-colors">
+                      Market Bubbles (CryptoBubbles)
+                    </h3>
+                    <p className="text-[11px] font-mono text-muted">Emerging & Non-Major Tokens</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted leading-relaxed">
+                  2D physics canvas visualizing momentum, volume-weighted sizing, and % price changes across non-major and meme crypto assets.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-emerald-400 shrink-0 group-hover:translate-x-1 transition-transform">
+                Launch →
+              </span>
+            </Link>
+
+            <Link
+              href="/admin/bubblemaps"
+              className="group p-5 rounded-2xl bg-panel border border-line hover:border-purple-500/50 hover:bg-purple-500/5 transition-all shadow-md flex items-start justify-between gap-4"
+            >
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-2xl p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
+                    🕸️
+                  </span>
+                  <div>
+                    <h3 className="text-base font-bold text-text group-hover:text-purple-400 transition-colors">
+                      BubbleMaps & Whale Tracker
+                    </h3>
+                    <p className="text-[11px] font-mono text-muted">On-Chain Clusters & DEX Swaps</p>
+                  </div>
+                </div>
+                <p className="text-xs text-muted leading-relaxed">
+                  Inspect token supply distribution, uncover stealth developer multi-wallet splits, and track real-time DEX Buy vs Sell transactions.
+                </p>
+              </div>
+              <span className="text-xs font-bold text-purple-400 shrink-0 group-hover:translate-x-1 transition-transform">
+                Launch →
+              </span>
+            </Link>
           </div>
         </div>
       )}
