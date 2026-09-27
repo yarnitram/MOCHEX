@@ -2,49 +2,36 @@ import { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
-// Default admin usernames and emails
-const DEFAULT_ADMINS = ["ymatt", "support@mochex.com", "support"];
+// Strict platform administrator email
+const STRICT_ADMIN_EMAIL = "support@mochex.com";
 
 export function getAdminList(): { usernames: string[]; emails: string[] } {
-  const envAdmins = (process.env.ADMIN_USERS || process.env.ADMIN_EMAILS || "")
+  const envAdmins = (process.env.ADMIN_EMAILS || "")
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  const allAdmins = Array.from(new Set([...DEFAULT_ADMINS, ...envAdmins]));
+  const emails = Array.from(new Set([STRICT_ADMIN_EMAIL, ...envAdmins]));
   return {
-    usernames: allAdmins.filter((s) => !s.includes("@")),
-    emails: allAdmins.filter((s) => s.includes("@")),
+    usernames: [],
+    emails,
   };
 }
 
 /**
  * Determine if a user has Administrator privileges.
+ * Strictly checks that the user's authenticated email is support@mochex.com.
  */
 export function isUserAdmin(
   user: User | null,
   userSettings?: { username?: string | null; is_admin?: boolean | null } | null
 ): boolean {
-  if (!user) return false;
+  if (!user || !user.email) return false;
 
-  const { usernames, emails } = getAdminList();
+  const email = user.email.trim().toLowerCase();
+  const { emails } = getAdminList();
 
-  // 1. Explicit database role flag
-  if (userSettings?.is_admin === true) {
-    return true;
-  }
-
-  // 2. Username match
-  if (userSettings?.username && usernames.includes(userSettings.username.toLowerCase())) {
-    return true;
-  }
-
-  // 3. Email match
-  if (user.email && (emails.includes(user.email.toLowerCase()) || usernames.includes(user.email.toLowerCase()))) {
-    return true;
-  }
-
-  return false;
+  return emails.includes(email);
 }
 
 /**

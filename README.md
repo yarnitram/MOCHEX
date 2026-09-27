@@ -75,7 +75,20 @@ MOCHEX is a high-performance personal trading journal and real-time futures watc
 - **In-Chart Modification & Future Projections**: Interactive corner/vertex drag handles, whole-shape moving, floating quick toolbar, and projection past current price.
 - **Watchlist Modal Zoom & Dedicated Page**: Smooth `ResizeObserver` zooming in modal, and full-width `max-w-screen-2xl` dedicated workspace (`/chart/[symbol]`).
 
-> 📖 **Full Chart Documentation**: See [`CHART.md`](CHART.md) for indicator calculations, drawing tool capabilities, and architectural details.
+### 9. Settings Hub & Admin Architecture
+- **Widescreen 2-Column Workspace (`max-w-7xl`)**: Category sidebar navigation on desktop (`lg+`) with user identity card and mobile horizontal scrolling tab bar.
+- **7 Categorized Configuration Tabs**:
+  - `👤 Profile`: Vanity handle URL (`/[username]`), display name, bio, social links, public showcase toggle.
+  - `🔔 Alerts`: Multi-channel Discord webhooks, Telegram bot routing, desktop toasts, polling interval.
+  - `🔊 Audio & Radar`: Volume slider with SFX auditioning, Web Audio synthesized proximity radar alarms, dual `localStorage` + Supabase sync.
+  - `📡 Integrations`: TradingView webhook secrets, automated payload generator, live test dispatchers.
+  - `⚖️ Risk Limits`: Drawdown guardrails, max daily loss (USD), position risk %, max open positions.
+  - `💾 Cloud Storage (Admin-Only)`: Platform-wide Google Drive bucket authorization, storage engine selection (`auto`, `google_drive`, `supabase`), 1-click upload tester, Vercel token copier.
+  - `💖 Support`: Community Tip Jar and platform hosting support modal.
+- **Per-Tab Save Controls**: Dedicated contextual save buttons on every tab with instant local confirmation.
+- **Strict Admin Security**: Administrative privileges strictly restricted to `support@mochex.com`.
+
+> 📖 **Full Settings Documentation**: See [`SETTINGS.md`](SETTINGS.md) for tab breakdowns, storage engines, and security architecture.
 
 ---
 
@@ -93,7 +106,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 ### 2. Run Database Migrations
 
-Apply all SQL migrations located in `supabase/migrations/` (migrations `001` through `024_tradingview_webhooks.sql`) in your Supabase SQL Editor.
+Apply all SQL migrations located in `supabase/migrations/` (migrations `001` through `028_admin_dashboard.sql`) in your Supabase SQL Editor.
 
 ### 3. Development Server
 

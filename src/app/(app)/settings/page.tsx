@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAccounts, getRiskSettings } from "@/lib/data";
 import { SettingsForm } from "@/components/settings/settings-form";
-import { RiskSettingsForm } from "@/components/risk/risk-settings-form";
+import { isUserAdmin } from "@/lib/admin";
 import type { TelegramDestination } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -41,7 +41,10 @@ export default async function SettingsPage() {
     google_drive_connected?: boolean | null;
     google_drive_email?: string | null;
     screenshot_storage_backend?: "supabase" | "google_drive" | "auto" | null;
+    is_admin?: boolean | null;
   } | null);
+
+  const isAdmin = isUserAdmin(user, d);
 
   let webhookSecret = d?.webhook_secret;
   if (!webhookSecret) {
@@ -61,7 +64,7 @@ export default async function SettingsPage() {
     ? d.telegram_destinations
     : [];
 
-  // Risk settings (now hosted on the Settings page).
+  // Risk settings
   const accounts = await getAccounts(supabase, user);
   const activeAccount = accounts[0] ?? null;
   const riskSettings = activeAccount
@@ -69,9 +72,12 @@ export default async function SettingsPage() {
     : null;
 
   return (
-    <div className="flex flex-col gap-10">
+    <div className="w-full">
       <SettingsForm
         userEmail={user.email ?? ""}
+        isAdmin={isAdmin}
+        account={activeAccount}
+        riskSettings={riskSettings}
         initial={{
           username: d?.username ?? "",
           display_name: d?.display_name ?? null,
@@ -92,10 +98,6 @@ export default async function SettingsPage() {
           screenshot_storage_backend: d?.screenshot_storage_backend ?? "auto",
         }}
       />
-
-      <div className="hairline-t pt-8">
-        <RiskSettingsForm account={activeAccount} settings={riskSettings} />
-      </div>
     </div>
   );
 }

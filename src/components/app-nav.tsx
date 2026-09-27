@@ -15,15 +15,23 @@ const LINKS = [
   { href: "/shares", label: "Shares", icon: "🌐" },
 ];
 
-export function AppNav() {
+interface AppNavProps {
+  isAdmin?: boolean;
+}
+
+export function AppNav({ isAdmin: serverIsAdmin }: AppNavProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tipModalOpen, setTipModalOpen] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [clientIsAdmin, setClientIsAdmin] = useState(false);
 
-  // Check admin status
+  // Authoritative admin determination: prioritize server prop, fallback to verified DB query
+  const isAdmin = serverIsAdmin ?? clientIsAdmin;
+
+  // Fallback client check only if server prop is omitted
   useEffect(() => {
+    if (serverIsAdmin !== undefined) return;
     let mounted = true;
     async function checkAdminStatus() {
       try {
@@ -34,31 +42,10 @@ export function AppNav() {
         const email = (user.email || "").toLowerCase();
         const usernameMeta = (user.user_metadata?.username || "").toLowerCase();
 
-        // Fast match on common root username/email
-        if (
-          email.includes("ymatt") ||
-          email === "support@mochex.com" ||
-          usernameMeta === "ymatt" ||
-          usernameMeta === "support"
-        ) {
-          if (mounted) setIsAdmin(true);
+        // Strictly match admin email support@mochex.com
+        if (email === "support@mochex.com") {
+          if (mounted) setClientIsAdmin(true);
           return;
-        }
-
-        // Check user_settings table
-        const { data } = await supabase
-          .from("user_settings")
-          .select("is_admin, username")
-          .eq("user_id", user.id)
-          .maybeSingle();
-
-        if (
-          mounted &&
-          (data?.is_admin === true ||
-            data?.username?.toLowerCase() === "ymatt" ||
-            data?.username?.toLowerCase() === "support")
-        ) {
-          setIsAdmin(true);
         }
       } catch {
         // ignore
@@ -68,7 +55,7 @@ export function AppNav() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [serverIsAdmin]);
 
   // Close mobile drawer on route change
   useEffect(() => {
@@ -109,7 +96,7 @@ export function AppNav() {
             MOCHEX
           </Link>
 
-          {/* Desktop Navigation Links */}
+          {/* Desktop Primary Navigation Links */}
           <nav aria-label="Primary navigation" className="hidden sm:flex items-center gap-1 h-full">
             {LINKS.map((l) => (
               <Link
@@ -124,25 +111,27 @@ export function AppNav() {
                 {l.label}
               </Link>
             ))}
-
-            {isAdmin && (
-              <Link
-                href="/admin"
-                className={`px-2.5 py-1 text-xs font-semibold whitespace-nowrap rounded-lg transition-all flex items-center gap-1.5 border ml-1 ${
-                  isActive("/admin")
-                    ? "text-amber-400 bg-amber-500/15 border-amber-500/40 shadow-sm shadow-amber-500/10 font-bold"
-                    : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-400/10 border-amber-500/30"
-                }`}
-              >
-                <span className="text-sm">🛡️</span>
-                <span>Admin</span>
-              </Link>
-            )}
           </nav>
         </div>
 
         {/* Right Controls */}
         <div className="flex items-center gap-1.5 h-full">
+          {/* Admin Command Center Badge (strictly for confirmed admins) */}
+          {isAdmin && (
+            <Link
+              href="/admin"
+              title="Admin Command Center"
+              className={`hidden sm:flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-lg border transition-all ${
+                isActive("/admin")
+                  ? "text-amber-400 bg-amber-500/20 border-amber-500/50 shadow-xs shadow-amber-500/20"
+                  : "text-amber-400/90 hover:text-amber-300 hover:bg-amber-400/10 border-amber-500/30"
+              }`}
+            >
+              <span className="text-sm">🛡️</span>
+              <span className="hidden md:inline">Admin</span>
+            </Link>
+          )}
+
           <NotificationBell />
 
           <Link

@@ -31,11 +31,8 @@ export async function GET() {
       watchlistCountMap[w.user_id] = (watchlistCountMap[w.user_id] || 0) + 1;
     });
 
-    const { usernames } = getAdminList();
-
     const enrichedUsers = (users || []).map((u) => {
-      const isUserAdminRole =
-        u.is_admin === true || (u.username && usernames.includes(u.username.toLowerCase()));
+      const isUserAdminRole = u.is_admin === true;
 
       return {
         id: u.user_id,

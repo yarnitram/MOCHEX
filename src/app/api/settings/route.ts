@@ -161,6 +161,15 @@ export async function PUT(request: Request) {
   const proximityThreshold = Number(b.proximity_threshold_pct) || 0.5;
   const alarmPreset = typeof b.alarm_sound_preset === "string" ? b.alarm_sound_preset : "radar_ping";
 
+  const isAdmin = isUserAdmin(user);
+  let storageBackend: string | undefined = undefined;
+  if (isAdmin && typeof b.screenshot_storage_backend === "string") {
+    const val = b.screenshot_storage_backend.toLowerCase();
+    if (["auto", "google_drive", "supabase"].includes(val)) {
+      storageBackend = val;
+    }
+  }
+
   const { error } = await supabase.from("user_settings").upsert(
     {
       user_id: user.id,
@@ -181,6 +190,7 @@ export async function PUT(request: Request) {
       proximity_alarm_enabled: b.proximity_alarm_enabled !== false,
       proximity_threshold_pct: proximityThreshold,
       alarm_sound_preset: alarmPreset,
+      ...(storageBackend ? { screenshot_storage_backend: storageBackend } : {}),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "user_id" }
