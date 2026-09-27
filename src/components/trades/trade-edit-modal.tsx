@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { OrderType, TradeAlert, ArchivedTradeAlert } from "@/lib/types";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { calculateTradePnl } from "@/lib/trade-calc";
+import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
 
 interface Props {
   alert: TradeAlert | ArchivedTradeAlert;
@@ -68,6 +69,13 @@ export function TradeEditModal({
   );
   const [notes, setNotes] = useState(alert.notes ?? "");
 
+  const initialScreenshots: string[] = alert.screenshot_urls?.length
+    ? alert.screenshot_urls
+    : alert.screenshot_url
+    ? [alert.screenshot_url]
+    : [];
+  const [screenshotUrls, setScreenshotUrls] = useState<string[]>(initialScreenshots);
+
   // Status and closure fields
   const [status, setStatus] = useState<"active" | "closed">(
     isClosedInit ? "closed" : "active"
@@ -113,6 +121,8 @@ export function TradeEditModal({
       leverage: inputToNum(leverage),
       order_type: orderType === "" ? null : orderType,
       notes: notes.trim() === "" ? null : notes.trim(),
+      screenshot_urls: screenshotUrls,
+      screenshot_url: screenshotUrls[0] ?? null,
       status,
       status_at_archive: status,
       exit_price: status === "closed" ? numExit : null,
@@ -444,6 +454,16 @@ export function TradeEditModal({
             className="input-base w-full text-xs"
           />
         </div>
+
+        {/* Multi-Screenshot Uploader (1–5 images) */}
+        <MultiScreenshotUploader
+          urls={screenshotUrls}
+          onChange={setScreenshotUrls}
+          maxFiles={5}
+          entityId={`trade-${alert.id}`}
+          label="Chart Screenshots (1–5 images)"
+          helpText="Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."
+        />
 
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-line">
           <button

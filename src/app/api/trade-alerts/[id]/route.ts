@@ -82,6 +82,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
   if (b.margin_usd !== undefined) updates.margin_usd = posOrNull(b.margin_usd);
   if (b.leverage !== undefined) updates.leverage = posOrNull(b.leverage);
 
+  if (b.screenshot_urls !== undefined) {
+    const urls = Array.isArray(b.screenshot_urls)
+      ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+      : [];
+    updates.screenshot_urls = urls;
+    updates.screenshot_url = urls[0] ?? null;
+  } else if (b.screenshot_url !== undefined) {
+    const single = b.screenshot_url ? String(b.screenshot_url) : null;
+    updates.screenshot_url = single;
+    updates.screenshot_urls = single ? [single] : [];
+  }
+
   if (b.status !== undefined) {
     updates.status = b.status === "closed" ? "closed" : "active";
   }
@@ -124,13 +136,28 @@ export async function PATCH(request: Request, { params }: Ctx) {
     updates.realized_pnl_pct = null;
   }
 
-  const { data: updated, error } = await supabase
+  let { data: updated, error } = await supabase
     .from("trade_alerts")
     .update(updates)
     .eq("id", id)
     .eq("user_id", user.id)
     .select("*")
     .single();
+
+  // Retry fallback if column does not exist yet
+  if (error && (error.message.includes("screenshot") || error.code === "PGRST204" || error.code === "42703")) {
+    delete updates.screenshot_urls;
+    delete updates.screenshot_url;
+    const retry = await supabase
+      .from("trade_alerts")
+      .update(updates)
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .select("*")
+      .single();
+    updated = retry.data;
+    error = retry.error;
+  }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true, alert: updated });

@@ -51,6 +51,12 @@ export async function PUT(request: Request, { params }: Ctx) {
             ? String(b.screenshot_url)
             : null
           : undefined,
+      screenshot_urls:
+        b.screenshot_urls !== undefined
+          ? Array.isArray(b.screenshot_urls)
+            ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+            : []
+          : undefined,
     };
 
     await updateTrade(supabase, id, input);

@@ -103,14 +103,26 @@ export async function createTrade(
   const thesis = input.pre_trade_thesis?.trim();
   const review = input.post_trade_review?.trim();
   const screenshot = input.screenshot_url?.trim();
-  if (thesis || review || input.discipline_score != null || screenshot) {
-    await supabase.from("trade_notes").insert({
+  const screenshotUrls = Array.isArray(input.screenshot_urls)
+    ? input.screenshot_urls.filter(Boolean)
+    : screenshot
+    ? [screenshot]
+    : [];
+
+  if (thesis || review || input.discipline_score != null || screenshot || screenshotUrls.length > 0) {
+    const notesPayload: Record<string, unknown> = {
       trade_id: tradeId,
       pre_trade_thesis: thesis || null,
       post_trade_review: review || null,
       discipline_score: input.discipline_score ?? null,
-      screenshot_url: screenshot || null,
-    });
+      screenshot_url: screenshot || screenshotUrls[0] || null,
+      screenshot_urls: screenshotUrls,
+    };
+    const { error: notesErr } = await supabase.from("trade_notes").insert(notesPayload);
+    if (notesErr) {
+      delete notesPayload.screenshot_urls;
+      await supabase.from("trade_notes").insert(notesPayload);
+    }
   }
 
   return { id: tradeId };
@@ -174,9 +186,16 @@ export async function updateTrade(
     thesis ||
     review ||
     input.discipline_score != null ||
-    input.screenshot_url !== undefined;
+    input.screenshot_url !== undefined ||
+    input.screenshot_urls !== undefined;
 
   if (hasNotes) {
+    const screenshotUrls = Array.isArray(input.screenshot_urls)
+      ? input.screenshot_urls.filter(Boolean)
+      : input.screenshot_url
+      ? [input.screenshot_url.trim()]
+      : undefined;
+
     const updateObj: Record<string, unknown> = {
       trade_id: tradeId,
       pre_trade_thesis: thesis || null,
@@ -186,7 +205,19 @@ export async function updateTrade(
     if (input.screenshot_url !== undefined) {
       updateObj.screenshot_url = input.screenshot_url ? input.screenshot_url.trim() : null;
     }
-    await supabase.from("trade_notes").upsert(updateObj, { onConflict: "trade_id" });
+    if (screenshotUrls !== undefined) {
+      updateObj.screenshot_urls = screenshotUrls;
+      if (updateObj.screenshot_url === undefined && screenshotUrls.length > 0) {
+        updateObj.screenshot_url = screenshotUrls[0];
+      }
+    }
+    const { error: upsertErr } = await supabase
+      .from("trade_notes")
+      .upsert(updateObj, { onConflict: "trade_id" });
+    if (upsertErr) {
+      delete updateObj.screenshot_urls;
+      await supabase.from("trade_notes").upsert(updateObj, { onConflict: "trade_id" });
+    }
   } else if (input.clearNotes) {
     // Explicitly remove notes (keep the trade).
     await supabase.from("trade_notes").delete().eq("trade_id", tradeId);

@@ -59,6 +59,18 @@ export async function PATCH(request: Request, { params }: Ctx) {
 
   if (b.notes !== undefined) updates.notes = b.notes?.toString() || null;
 
+  if (b.screenshot_urls !== undefined) {
+    const urls = Array.isArray(b.screenshot_urls)
+      ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+      : [];
+    updates.screenshot_urls = urls;
+    updates.screenshot_url = urls[0] ?? null;
+  } else if (b.screenshot_url !== undefined) {
+    const single = b.screenshot_url ? String(b.screenshot_url) : null;
+    updates.screenshot_url = single;
+    updates.screenshot_urls = single ? [single] : [];
+  }
+
   // Re-arm: clear the fired flag so the watcher can notify again.
   if (b.rearm) {
     updates.alert_fired = false;
@@ -88,7 +100,19 @@ export async function PATCH(request: Request, { params }: Ctx) {
   let query = supabase.from("watchlist_items").update(updates).eq("id", id);
   if (firing) query = query.eq("alert_fired", false);
 
-  const { data, error } = await query.select("id");
+  let { data, error } = await query.select("id");
+
+  // Fallback if migration 029 is not yet run in remote Supabase
+  if (error && (error.message.includes("screenshot") || error.code === "PGRST204" || error.code === "42703")) {
+    delete updates.screenshot_urls;
+    delete updates.screenshot_url;
+    let retryQuery = supabase.from("watchlist_items").update(updates).eq("id", id);
+    if (firing) retryQuery = retryQuery.eq("alert_fired", false);
+    const retryRes = await retryQuery.select("id");
+    data = retryRes.data;
+    error = retryRes.error;
+  }
+
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   // Log setup revision audit trail

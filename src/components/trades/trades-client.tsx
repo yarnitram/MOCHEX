@@ -11,6 +11,24 @@ import { ArchivedTradesTab } from "./archived-trades-tab";
 import { useLivePrices, formatLastRefreshed } from "./use-live-prices";
 import { PositionCalculatorModal } from "@/components/calculator/position-calculator-modal";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+
+function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
 
 interface Props {
   initialAlerts: TradeAlert[];
@@ -280,6 +298,11 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
   const [closingAlert, setClosingAlert] = useState<TradeAlert | null>(null);
   const [chartAlert, setChartAlert] = useState<TradeRow | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // Lightbox for screenshots
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxTitle, setLightboxTitle] = useState<string>("");
+  const [lightboxOpen, setLightboxOpen] = useState(false);
 
   const icons = useMemo(() => {
     const map: Record<string, string> = {};
@@ -820,6 +843,23 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
                                 )}
                               </span>
                               <span className="font-semibold text-text whitespace-nowrap">{cleanSymbol(sym)}</span>
+                              {((a.screenshot_urls && a.screenshot_urls.length > 0) || a.screenshot_url) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const imgs = a.screenshot_urls?.length ? a.screenshot_urls : [a.screenshot_url!];
+                                    setLightboxImages(imgs);
+                                    setLightboxTitle(`${cleanSymbol(sym)} Screenshots`);
+                                    setLightboxOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-accent/15 text-accent border border-accent/25 hover:bg-accent/25 transition-colors cursor-pointer shrink-0"
+                                  title="View screenshots"
+                                >
+                                  <CameraIcon className="w-3 h-3" />
+                                  <span>{a.screenshot_urls?.length || 1}</span>
+                                </button>
+                              )}
                             </div>
                           </td>
                           {colVisible("position") && (
@@ -1159,6 +1199,13 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
           }}
         />
       )}
+
+      <ImageLightboxModal
+        images={lightboxImages}
+        title={lightboxTitle}
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+      />
     </div>
   );
 }

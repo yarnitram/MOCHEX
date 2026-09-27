@@ -5,6 +5,7 @@ import { ModalShell } from "@/components/ui/modal-shell";
 import type { OrderType, WatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPct } from "@/lib/format";
 import { ORDER_TYPE_LABELS } from "./watchlist-types";
+import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
 
 export interface AddSetupPayload {
   symbol: string;
@@ -15,6 +16,8 @@ export interface AddSetupPayload {
   stop_loss?: number | null;
   take_profit?: number | null;
   notes?: string | null;
+  screenshot_urls?: string[];
+  screenshot_url?: string | null;
 }
 
 interface TickerResult {
@@ -80,6 +83,7 @@ export function AddTokenModal({
   const [stopLoss, setStopLoss] = useState("");
   const [takeProfit, setTakeProfit] = useState("");
   const [notes, setNotes] = useState("");
+  const [screenshotUrls, setScreenshotUrls] = useState<string[]>([]);
 
   // Submission state
   const [submitting, setSubmitting] = useState(false);
@@ -105,6 +109,7 @@ export function AddTokenModal({
       setStopLoss("");
       setTakeProfit("");
       setNotes("");
+      setScreenshotUrls([]);
       setFormError(null);
       setSuccessBanner(null);
       setLastAddedItem(null);
@@ -290,6 +295,8 @@ export function AddTokenModal({
       stop_loss: sl,
       take_profit: tp,
       notes: notes.trim() || null,
+      screenshot_urls: screenshotUrls,
+      screenshot_url: screenshotUrls[0] ?? null,
     };
 
     try {
@@ -312,6 +319,7 @@ export function AddTokenModal({
       setStopLoss("");
       setTakeProfit("");
       setNotes("");
+      setScreenshotUrls([]);
     } catch (err) {
       setFormError((err as Error).message || "Failed to add setup");
     } finally {
@@ -789,6 +797,16 @@ export function AddTokenModal({
                 className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none font-mono"
               />
             </label>
+
+            {/* Screenshots (1–5 images) with Auto-Compression */}
+            <MultiScreenshotUploader
+              urls={screenshotUrls}
+              onChange={setScreenshotUrls}
+              maxFiles={5}
+              entityId={`watchlist-${selectedToken?.symbol || "new"}`}
+              label="Chart Screenshots (1–5 images)"
+              helpText="Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."
+            />
 
             {/* Form Action Buttons */}
             <div className="flex items-center justify-between pt-2 border-t border-line">

@@ -78,15 +78,45 @@ export async function POST(request: Request) {
         finalUrl = pub.publicUrl;
       }
 
-      // Upsert into trade_notes if existing trade
-      if (!tradeId.startsWith("new-")) {
-        const { error: noteErr } = await supabase.from("trade_notes").upsert(
-          { trade_id: tradeId, screenshot_url: finalUrl },
-          { onConflict: "trade_id" }
-        );
+      // Upsert into trade_notes if existing trade in the journal
+      const isTemporaryOrWatchlist =
+        tradeId.startsWith("new-") ||
+        tradeId.startsWith("watchlist-") ||
+        tradeId.startsWith("screenshot-") ||
+        tradeId.startsWith("setup-");
 
-        if (noteErr) {
-          return NextResponse.json({ error: noteErr.message }, { status: 400 });
+      if (!isTemporaryOrWatchlist) {
+        // Try updating both screenshot_url and screenshot_urls array
+        try {
+          const { data: existingNote } = await supabase
+            .from("trade_notes")
+            .select("screenshot_urls")
+            .eq("trade_id", tradeId)
+            .maybeSingle();
+
+          const currentList: string[] = Array.isArray(existingNote?.screenshot_urls)
+            ? existingNote.screenshot_urls
+            : [];
+          const nextList = Array.from(new Set([...currentList, finalUrl]));
+
+          const { error: noteErr } = await supabase.from("trade_notes").upsert(
+            {
+              trade_id: tradeId,
+              screenshot_url: finalUrl,
+              screenshot_urls: nextList,
+            },
+            { onConflict: "trade_id" }
+          );
+
+          if (noteErr) {
+            // Fallback if screenshot_urls column is not yet present
+            await supabase.from("trade_notes").upsert(
+              { trade_id: tradeId, screenshot_url: finalUrl },
+              { onConflict: "trade_id" }
+            );
+          }
+        } catch {
+          // Non-critical: allow upload to succeed even if trade_notes sync has issues
         }
       }
 

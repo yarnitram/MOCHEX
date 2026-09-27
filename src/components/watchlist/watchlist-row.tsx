@@ -13,6 +13,24 @@ import {
 import type { ColKey, Ticker } from "./watchlist-types";
 import { ORDER_TYPE_LABELS } from "./watchlist-types";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+
+function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
 
 // ---- Prop types ----
 
@@ -81,9 +99,16 @@ export function WatchlistRow({
   onRemove,
 }: WatchlistRowProps) {
   const [isChartOpen, setIsChartOpen] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
   const sym = item.symbol.toUpperCase();
   const label = cleanSymbol(sym);
   const colVisible = (key: ColKey) => cols[key] !== false;
+
+  const screenshots: string[] = item.screenshot_urls?.length
+    ? item.screenshot_urls
+    : item.screenshot_url
+    ? [item.screenshot_url]
+    : [];
 
   const side =
     item.trigger_direction === "above"
@@ -134,6 +159,20 @@ export function WatchlistRow({
                 {sym.replace("_USDT", "")}
               </span>
             </button>
+            {screenshots.length > 0 && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightboxOpen(true);
+                }}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-accent/15 text-accent border border-accent/25 hover:bg-accent/25 transition-colors cursor-pointer shrink-0"
+                title={`View ${screenshots.length} screenshot${screenshots.length > 1 ? "s" : ""}`}
+              >
+                <CameraIcon className="w-3 h-3" />
+                <span>{screenshots.length}</span>
+              </button>
+            )}
           </div>
         </td>
 
@@ -333,6 +372,13 @@ export function WatchlistRow({
           take_profit: item.take_profit,
           order_type: item.order_type,
         }}
+      />
+
+      <ImageLightboxModal
+        images={screenshots}
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        title={`${label} Setup Screenshots`}
       />
     </>
   );

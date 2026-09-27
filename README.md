@@ -8,10 +8,13 @@ MOCHEX is a high-performance personal trading journal and real-time futures watc
 
 ### 1. Futures Watchlist & Trigger Engine
 - **Live MEXC Prices**: Real-time ticker prices, 24h volume, and percentage changes.
-- **All-in-One Setup Builder Modal**: Single cohesive modal configuring coin, position side (`↗ LONG` / `↘ SHORT`), trigger price, order type, EP, SL, TP, and strategy notes.
+- **Harmonized Add & Modify Modals**: Identical field schema across **Add Setup** (`AddTokenModal`) and **Modify Setup** (`CoinDetailModal`) with position direction (`↗ LONG` / `↘ SHORT`), trigger price, order type, EP, SL, TP, live R:R ratio, strategy notes, and 1-click **"Use Last Price"** buttons.
 - **Mandatory Required Parameters**: Trigger Price, Order Type, Entry Price (EP), Stop Loss (SL), and Take Profit (TP) are strictly required.
 - **Directional Safety Guardrails**: Enforces `SL < EP < TP` for Longs and `TP < EP < SL` for Shorts to protect against accidental instant stop-outs.
 - **Dedicated Position Column**: Distinct table column displaying `↗ LONG` (gain green) and `↘ SHORT` (loss red) badges with directional icons.
+- **Universal Multi-Screenshot Upload (1–5 images)**: Drag-and-drop, file picker, and clipboard paste (`Ctrl+V`) for up to 5 chart screenshots per setup/trade.
+- **In-Browser Image Compression**: Automatically downscales and compresses captures client-side via HTML5 canvas (max 2048px, JPEG 0.85, 85–95% savings) before uploading to Google Drive or Supabase.
+- **Interactive Lightbox Modal**: High-res image modal with previous/next navigation, keyboard shortcuts, and thumbnail strip.
 - **Multi-Setup Per Coin**: Add multiple independent trade plans for the same token (e.g. dip-buy `Limit` vs breakout `Trigger Limit`).
 - **Trigger Limit Chaining**: First-stage triggers automatically spawn a secondary `Limit` order at Entry Price (EP) when hit.
 - **Trigger Archive & Restoring**: Move triggered items back to the active watchlist anytime without plan loss.
@@ -106,7 +109,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 
 ### 2. Run Database Migrations
 
-Apply all SQL migrations located in `supabase/migrations/` (migrations `001` through `028_admin_dashboard.sql`) in your Supabase SQL Editor.
+Apply all SQL migrations located in `supabase/migrations/` (migrations `001` through `029_watchlist_and_trade_screenshots.sql`) in your Supabase SQL Editor.
 
 ### 3. Development Server
 

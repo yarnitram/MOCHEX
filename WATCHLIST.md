@@ -15,14 +15,15 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
    - **Triggered**: Tokens whose trigger conditions have been met automatically.
    - **Archive**: Soft-deleted tokens from either the active Watchlist or Triggered tab.
 
-3. **All-in-One Setup Builder Modal**:
-   - Single-modal flow configuring the token and full execution plan at once:
-     - Real-time MEXC futures search with debounced autocomplete.
-     - Popular market quick chips (`BTC`, `ETH`, `SOL`, `DOGE`, `XRP`, `SUI`, `PEPE`, `NEAR`, `AVAX`, `BNB`).
-     - Selected coin card displaying coin icon, symbol, `USDT Perpetual`, live price (`fmtPx`), and 24h change %.
+3. **All-in-One Setup Builder & Harmonized Modify Modals**:
+   - Both **Add Setup** (`AddTokenModal`) and **Modify Setup** (`CoinDetailModal`) share a unified, synchronized schema:
+     - Real-time MEXC futures search with debounced autocomplete (in Add Modal) and live market price badges.
      - Position side toggle: `↗ LONG` (green) and `↘ SHORT` (red).
      - 1-click **"Use Last Price"** shortcuts for Trigger Price and Entry Price.
      - Strategy notes and thesis textarea.
+     - Real-time **Risk:Reward (R:R)** calculator badge (`🎯 1 : X.X R:R`).
+     - **Multi-Screenshot Support (1–5 images)** with drag-and-drop, file picker, and clipboard paste (`Ctrl+V`).
+     - **Universal Client-Side Image Compression**: Automatically downscales and compresses captures in-browser (max 2048px, JPEG 0.85, 85–95% size reduction) prior to storage upload.
 
 4. **Mandatory Setup Parameters & Safety Guardrails**:
    - Every Watchlist setup strictly requires complete trade parameters before submission:
@@ -36,12 +37,16 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
      - **SHORT**: Enforces `Stop Loss > Entry Price` and `Take Profit < Entry Price`.
    - Real-time **Risk:Reward (R:R)** calculator badge (`🎯 1 : X.X R:R`).
 
-5. **Dedicated Position Column**:
+5. **Multi-Screenshot Gallery & Interactive Lightbox**:
+   - Attach 1 to 5 chart screenshots to any watchlist setup.
+   - Watchlist table displays camera badge (`📸 N`) opening the high-resolution `ImageLightboxModal` with thumbnail strip, full-screen view, and keyboard navigation.
+
+6. **Dedicated Position Column**:
    - The main Watchlist table features a dedicated **Position** column right after `Coin`:
      - `↗ LONG`: Green badge (`bg-gain/15 text-gain border border-gain/20`) with directional up-right icon.
      - `↘ SHORT`: Red badge (`bg-loss/15 text-loss border border-loss/20`) with directional down-right icon.
 
-6. **Multi-Instance Token Support**:
+7. **Multi-Instance Token Support**:
    - Traders can track **multiple independent setups for the same coin** simultaneously (e.g. scalp long, swing long, or macro hedge short on `BTC`).
    - No duplicate-token restrictions; every setup receives a unique UUID in `watchlist_items`.
    - Ticker polling automatically deduplicates symbols so market data requests remain lean.
@@ -146,13 +151,13 @@ flowchart TD
 ### Tables
 
 1. **`watchlist_items`**: Active watchlist items currently monitored by the watcher.
-   - Key columns: `id`, `user_id`, `symbol`, `trigger_price`, `trigger_direction`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`.
+   - Key columns: `id`, `user_id`, `symbol`, `trigger_price`, `trigger_direction`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`, `screenshot_urls`, `screenshot_url`.
 
 2. **`triggered_watchlist_items`**: Archive of automatically fired tokens.
-   - Key columns: `id`, `user_id`, `source_item_id`, `symbol`, `trigger_price`, `trigger_direction`, `fired_price`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`, `fired_at`.
+   - Key columns: `id`, `user_id`, `source_item_id`, `symbol`, `trigger_price`, `trigger_direction`, `fired_price`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`, `screenshot_urls`, `screenshot_url`, `fired_at`.
 
 3. **`archived_watchlist_items`**: Soft-delete repository for manually removed active or triggered items.
-   - Key columns: `id`, `user_id`, `symbol`, `trigger_price`, `trigger_direction`, `fired_price`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`, `archive_source`, `fired_at`, `archived_at`.
+   - Key columns: `id`, `user_id`, `symbol`, `trigger_price`, `trigger_direction`, `fired_price`, `entry_price`, `stop_loss`, `take_profit`, `order_type`, `notes`, `screenshot_urls`, `screenshot_url`, `archive_source`, `fired_at`, `archived_at`.
 
 ### API Endpoints
 

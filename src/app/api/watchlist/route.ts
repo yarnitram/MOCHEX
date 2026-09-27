@@ -54,28 +54,53 @@ export async function POST(request: Request) {
 
   const triggerPrice = numOrNull(b.trigger_price);
 
-  const { data, error } = await supabase
+  const screenshotUrls = Array.isArray(b.screenshot_urls)
+    ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+    : b.screenshot_url
+    ? [String(b.screenshot_url)]
+    : [];
+  const firstScreenshot = screenshotUrls[0] ?? (b.screenshot_url ? String(b.screenshot_url) : null);
+
+  const insertPayload: Record<string, unknown> = {
+    user_id: user.id,
+    symbol,
+    notes: b.notes?.toString() || null,
+    alert_price: numOrNull(b.alert_price),
+    trigger_price: triggerPrice,
+    trigger_direction: triggerDirection,
+    order_type: orderType,
+    entry_price: numOrNull(b.entry_price),
+    stop_loss: numOrNull(b.stop_loss),
+    take_profit: numOrNull(b.take_profit),
+    trigger_created_at:
+      b.trigger_created_at != null
+        ? String(b.trigger_created_at)
+        : triggerPrice != null
+        ? new Date().toISOString()
+        : null,
+    screenshot_urls: screenshotUrls,
+    screenshot_url: firstScreenshot,
+  };
+
+  let { data, error } = await supabase
     .from("watchlist_items")
-    .insert({
-      user_id: user.id,
-      symbol,
-      notes: b.notes?.toString() || null,
-      alert_price: numOrNull(b.alert_price),
-      trigger_price: triggerPrice,
-      trigger_direction: triggerDirection,
-      order_type: orderType,
-      entry_price: numOrNull(b.entry_price),
-      stop_loss: numOrNull(b.stop_loss),
-      take_profit: numOrNull(b.take_profit),
-      trigger_created_at:
-        b.trigger_created_at != null
-          ? String(b.trigger_created_at)
-          : triggerPrice != null
-          ? new Date().toISOString()
-          : null,
-    })
+    .insert(insertPayload)
     .select("*")
     .single();
+
+  // Graceful fallback if migration 029 is not yet run in remote Supabase
+  if (error && (error.message.includes("screenshot") || error.code === "PGRST204" || error.code === "42703")) {
+    delete insertPayload.screenshot_urls;
+    delete insertPayload.screenshot_url;
+    const retry = await supabase
+      .from("watchlist_items")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
+
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ item: data }, { status: 201 });
 }

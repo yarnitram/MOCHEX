@@ -6,6 +6,7 @@ import type { OrderType } from "@/lib/types";
 import { calculateTradePnl } from "@/lib/trade-calc";
 import { CoinPicker, type SelectedCoin } from "@/components/ui/coin-picker";
 import { fmtPx } from "@/lib/format";
+import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
 
 interface Props {
   open: boolean;
@@ -32,6 +33,7 @@ export function ManualTradeModal({
   const [marginUsd, setMarginUsd] = useState("1");
   const [orderType, setOrderType] = useState<OrderType>("market");
   const [notes, setNotes] = useState("");
+  const [screenshotUrls, setScreenshotUrls] = useState<string[]>([]);
 
   // Status & Closure
   const [status, setStatus] = useState<"active" | "closed">("active");
@@ -57,6 +59,7 @@ export function ManualTradeModal({
       setMarginUsd("1");
       setOrderType("market");
       setNotes("");
+      setScreenshotUrls([]);
       setStatus("active");
       setExitPrice("");
       setClosedReason("manual_close");
@@ -162,6 +165,8 @@ export function ManualTradeModal({
           margin_usd: marginUsd ? Number(marginUsd) : 1,
           order_type: orderType,
           notes,
+          screenshot_urls: screenshotUrls,
+          screenshot_url: screenshotUrls[0] ?? null,
           status,
           exit_price: status === "closed" ? Number(exitPrice) : null,
           closed_reason: status === "closed" ? closedReason : null,
@@ -528,6 +533,16 @@ export function ManualTradeModal({
             className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none font-mono"
           />
         </label>
+
+        {/* Multi-Screenshot Uploader (1–5 images) */}
+        <MultiScreenshotUploader
+          urls={screenshotUrls}
+          onChange={setScreenshotUrls}
+          maxFiles={5}
+          entityId={`trade-${symbol || "new"}`}
+          label="Chart Screenshots (1–5 images)"
+          helpText="Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."
+        />
 
         {/* 7. Action Buttons */}
         <div className="flex items-center justify-between pt-2 border-t border-line">

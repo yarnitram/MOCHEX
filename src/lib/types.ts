@@ -56,6 +56,7 @@ export interface TradeNotes {
   post_trade_review: string | null;
   discipline_score: number | null;
   screenshot_url: string | null;
+  screenshot_urls?: string[];
 }
 
 export interface ArchivedJournalTrade {
@@ -188,6 +189,9 @@ export interface WatchlistItem {
   // Public sharing fields (added by migration 017).
   share_token?: string | null;
   is_public?: boolean;
+  // Multi-screenshot support (added by migration 029).
+  screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 /** The order type the user intends to place (aligns with MEXC order types). */
@@ -238,6 +242,9 @@ export interface TradeAlert {
   // Public sharing fields (added by migration 017).
   share_token?: string | null;
   is_public?: boolean;
+  // Multi-screenshot support (added by migration 029).
+  screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 export interface ArchivedTradeAlert {
@@ -273,6 +280,8 @@ export interface ArchivedTradeAlert {
   auto_be_on_tp1?: boolean;
   share_token?: string | null;
   is_public?: boolean;
+  screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 export interface TriggeredWatchlistItem {
@@ -290,6 +299,8 @@ export interface TriggeredWatchlistItem {
   notes: string | null;
   fired_at: string;
   created_at: string;
+  screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 export interface ArchivedWatchlistItem {
@@ -307,6 +318,8 @@ export interface ArchivedWatchlistItem {
   archive_source: "active_deleted" | "triggered_deleted";
   fired_at: string | null;
   archived_at: string;
+  screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 /**
@@ -384,6 +397,7 @@ export interface TradeInput {
   discipline_score?: number | null;
   clearNotes?: boolean;
   screenshot_url?: string | null;
+  screenshot_urls?: string[];
 }
 
 /** Aggregated analytics for a set of closed trades. */

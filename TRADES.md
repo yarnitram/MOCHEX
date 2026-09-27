@@ -33,14 +33,19 @@ The **Trades Page** (`/trades`) provides live position tracking, manual trade cr
    - **Direction Toggle Buttons**: Clean `↗ LONG` (green gain) and `↘ SHORT` (red loss) buttons with directional icons.
    - **1-Click "Use Last Price" Helpers**: Instant auto-fill buttons for `Entry Price`, `Trigger Price`, `Fired Price`, and `Exit Price`.
    - **Live Risk:Reward (R:R) Calculator**: Automatically computes `🎯 1 : X.X R:R` with directional safety warnings.
+   - **Multi-Screenshot Uploader (1–5 images)**: Drag-and-drop, file picker, and clipboard paste (`Ctrl+V`) with in-browser image compression (max 2048px, JPEG 0.85, 85–95% savings).
    - Create trades as **Active** or pre-closed (with Exit Price, Closed Reason, and auto-computed realized PnL directly into Closed History with Journal logging).
 
-4. **Interactive Manual Trade Closure**:
+4. **Multi-Screenshot Lightbox & Row Badges**:
+   - Active trade rows feature camera badges (`📸 N`) when screenshots are attached.
+   - Clicking opens the interactive `ImageLightboxModal` with thumbnail carousel, previous/next shortcuts, and full-resolution view.
+
+5. **Interactive Manual Trade Closure**:
    - Clicking **Close** on an active trade opens a quick modal pre-filled with the live MEXC market price.
    - Displays live preview of Realized PnL ($) and PnL (%) dynamically as exit price is confirmed or adjusted.
    - Submitting updates trade status to `closed`, logs the finished trade into the user's primary **Journal** (`trades` table), and dispatches notifications.
 
-5. **Automated TP/SL Hit Detection & Journaling**:
+6. **Automated TP/SL Hit Detection & Journaling**:
    - Background poller (`/api/trade-alerts/check`) checks active trades against MEXC prices.
    - When live price crosses SL or TP:
      1. Claims level atomically.
@@ -80,7 +85,7 @@ flowchart TD
 
 ## 🗄️ Database Schema & Migrations
 
-### `trade_alerts` Table (`009`, `010`, `011`, `015`)
+### `trade_alerts` Table (`009`, `010`, `011`, `015`, `029`)
 - `id` (UUID, Primary Key)
 - `user_id` (UUID, Foreign Key)
 - `symbol` (TEXT)
@@ -95,8 +100,10 @@ flowchart TD
 - `closed_at` (TIMESTAMPTZ)
 - `close_notes` (TEXT)
 - `realized_pnl_usd`, `realized_pnl_pct` (NUMERIC)
+- `screenshot_urls` (TEXT[], DEFAULT '{}')
+- `screenshot_url` (TEXT)
 
-### `archived_trade_alerts` Table (`015`)
+### `archived_trade_alerts` Table (`015`, `029`)
 - `id` (UUID, Primary Key)
 - `user_id` (UUID, Foreign Key)
 - `original_trade_alert_id` (UUID)
@@ -105,6 +112,8 @@ flowchart TD
 - `margin_usd`, `leverage`, `order_type`
 - `status_at_archive` (`'active'` | `'closed'`)
 - `closed_reason`, `close_notes`, `realized_pnl_usd`, `realized_pnl_pct`
+- `screenshot_urls` (TEXT[], DEFAULT '{}')
+- `screenshot_url` (TEXT)
 - `archived_at` (TIMESTAMPTZ)
 
 ---

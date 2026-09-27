@@ -66,6 +66,11 @@ export async function POST(request: Request) {
           ? Math.min(5, Math.max(1, Math.round(toNum(b.discipline_score))))
           : null,
       screenshot_url: b.screenshot_url ? String(b.screenshot_url) : null,
+      screenshot_urls: Array.isArray(b.screenshot_urls)
+        ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+        : b.screenshot_url
+        ? [String(b.screenshot_url)]
+        : undefined,
     };
 
     if (!input.symbol || !input.entry_time) {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { WatchlistItem, OrderType } from "@/lib/types";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { SetupRevisionTimeline } from "@/components/revisions/setup-revision-timeline";
+import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
 
 interface Props {
   symbol: string;
@@ -60,6 +61,10 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Position: derive from trigger_direction ("above" is short, "below" is long)
+  const initialPosition = item?.trigger_direction === "above" ? "short" : "long";
+  const [position, setPosition] = useState<"long" | "short">(initialPosition);
+
   // Form state for the alert / trade plan.
   const [triggerPrice, setTriggerPrice] = useState(
     toStr(item?.trigger_price ?? item?.alert_price)
@@ -68,8 +73,18 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
   const [stopLoss, setStopLoss] = useState(toStr(item?.stop_loss));
   const [takeProfit, setTakeProfit] = useState(toStr(item?.take_profit));
   const [orderType, setOrderType] = useState<OrderType | "">(
-    item?.order_type ?? ""
+    item?.order_type ?? "limit"
   );
+  const [notes, setNotes] = useState(item?.notes ?? "");
+
+  // Multi-Screenshot state (1 to 5 images)
+  const initialScreenshots: string[] = item?.screenshot_urls?.length
+    ? item.screenshot_urls
+    : item?.screenshot_url
+    ? [item.screenshot_url]
+    : [];
+  const [screenshotUrls, setScreenshotUrls] = useState<string[]>(initialScreenshots);
+
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"plan" | "history">("plan");
@@ -100,6 +115,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
     if (f == null) return "…";
     return `${f >= 0 ? "+" : ""}${(f * 100).toFixed(2)}%`;
   }
+
   function fmtPx(p: number | undefined): string {
     if (p == null) return "…";
     if (p >= 1000)
@@ -108,6 +124,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
       return p.toLocaleString("en-US", { maximumFractionDigits: 3 });
     return p.toLocaleString("en-US", { maximumFractionDigits: 6 });
   }
+
   function compact(v: number | undefined): string {
     if (v == null) return "…";
     const abs = Math.abs(v);
@@ -115,6 +132,42 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
     if (abs >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
     if (abs >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
     return v.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  }
+
+  // Calculate live Risk/Reward ratio & Directional Safety guardrails
+  const epNum = entry ? parseFloat(entry) : null;
+  const slNum = stopLoss ? parseFloat(stopLoss) : null;
+  const tpNum = takeProfit ? parseFloat(takeProfit) : null;
+
+  let rrRatio: string | null = null;
+  let riskWarning: string | null = null;
+
+  if (
+    epNum != null &&
+    slNum != null &&
+    tpNum != null &&
+    !isNaN(epNum) &&
+    !isNaN(slNum) &&
+    !isNaN(tpNum)
+  ) {
+    const risk = Math.abs(epNum - slNum);
+    const reward = Math.abs(tpNum - epNum);
+    if (risk > 0) {
+      rrRatio = (reward / risk).toFixed(2);
+    }
+    if (position === "long") {
+      if (slNum >= epNum) {
+        riskWarning = "For a LONG setup, Stop Loss should be below Entry Price.";
+      } else if (tpNum <= epNum) {
+        riskWarning = "For a LONG setup, Take Profit should be above Entry Price.";
+      }
+    } else {
+      if (slNum <= epNum) {
+        riskWarning = "For a SHORT setup, Stop Loss should be above Entry Price.";
+      } else if (tpNum >= epNum) {
+        riskWarning = "For a SHORT setup, Take Profit should be below Entry Price.";
+      }
+    }
   }
 
   async function handleSave(e: React.FormEvent) {
@@ -126,34 +179,26 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
     setSaving(true);
     setSavedMsg(null);
     setError(null);
+
     try {
-      // --- Infer trigger_direction from current price if triggerPrice is set ---
-      let triggerDirection: "above" | "below" | null = null;
-      let firedImmediately = false;
       const triggerPriceNum = triggerPrice ? parseFloat(triggerPrice) : null;
       const lastPrice = ticker?.lastPrice ?? null;
 
+      // Trigger direction is dictated by position (Long = below/pullback, Short = above/rally)
+      const triggerDirection = position === "long" ? "below" : "above";
+
+      let firedImmediately = false;
       if (triggerPriceNum !== null && lastPrice !== null) {
-        if (lastPrice > triggerPriceNum) {
-          // Current price is ABOVE trigger → we expect it to FALL DOWN to trigger
-          triggerDirection = "below";
-        } else if (lastPrice < triggerPriceNum) {
-          // Current price is BELOW trigger → we expect it to RISE UP to trigger
-          triggerDirection = "above";
-        } else {
-          // Price is exactly at trigger → fire immediately
-          triggerDirection = "above"; // default; could use 24h trend to decide
+        if (position === "long" && lastPrice <= triggerPriceNum) {
+          firedImmediately = true;
+        } else if (position === "short" && lastPrice >= triggerPriceNum) {
           firedImmediately = true;
         }
       }
 
       const fireTime = firedImmediately ? new Date().toISOString() : null;
 
-      // Only re-arm when the trigger itself changed. Re-saving with the same
-      // trigger (e.g. tweaking EP/SL/TP or notes) must NOT re-fire an alert
-      // that already fired — that was the source of duplicate notifications.
-      const prevTrigger =
-        item.trigger_price ?? item.alert_price ?? null;
+      const prevTrigger = item.trigger_price ?? item.alert_price ?? null;
       const triggerChanged =
         triggerPriceNum !== null && triggerPriceNum !== prevTrigger;
 
@@ -174,30 +219,35 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
           trigger_price: triggerPriceNum,
           trigger_direction: triggerDirection,
           order_type: orderType || null,
-          entry_price: entry,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
-          // If we fired immediately, mark it fired and don't rearm.
-          // Otherwise, rearm only when the trigger was actually changed.
+          entry_price: entry ? parseFloat(entry) : null,
+          stop_loss: stopLoss ? parseFloat(stopLoss) : null,
+          take_profit: takeProfit ? parseFloat(takeProfit) : null,
+          notes: notes.trim() || null,
+          screenshot_urls: screenshotUrls,
+          screenshot_url: screenshotUrls[0] ?? null,
           alert_fired: firedImmediately,
           alert_fired_at: fireTime ?? undefined,
           rearm: triggerChanged && !firedImmediately,
         }),
       });
+
       if (!res.ok) throw new Error((await res.json()).error || "Save failed");
       const saveResult = await res.json().catch(() => null);
 
       // Dispatch across all channels immediately when the price is already at
-      // the trigger (in-app notification + Discord + desktop). The PATCH
-      // above claims the fire atomically — skip if another watcher won it.
-      if (firedImmediately && triggerPriceNum !== null && saveResult?.claimed !== false) {
+      // the trigger (in-app notification + Discord + desktop).
+      if (
+        firedImmediately &&
+        triggerPriceNum !== null &&
+        saveResult?.claimed !== false
+      ) {
         await fetch(`/api/alerts/fire`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             type: "watchlist_trigger",
-            title: `${cleanSymbol(symbol)} hit your trigger`,
-            message: `Last ${lastPrice} reached your ${triggerPriceNum} trigger.`,
+            title: `${cleanSymbol(symbol)} (${position.toUpperCase()}) hit trigger`,
+            message: `Last ${lastPrice} reached your ${triggerPriceNum} trigger level.`,
             link: "/watchlist",
           }),
         }).catch(() => {});
@@ -208,7 +258,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
           ? "Alert cleared."
           : firedImmediately
           ? "🚨 Price already at trigger — alert fired!"
-          : "Alert saved — you'll be notified when the price hits it."
+          : "Setup & alert saved successfully!"
       );
       onSaved?.();
     } catch (err) {
@@ -229,14 +279,15 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
 
   return (
     <ModalShell
-      title={`${cleanSymbol(symbol)} · USDT perpetual`}
+      title={`${cleanSymbol(symbol)} · Modify Setup & Alert`}
       onClose={onClose}
+      maxWidth="max-w-xl"
     >
       {error ? (
         <div className="text-sm text-loss">{error}</div>
       ) : (
         <div className="flex flex-col gap-5">
-          {/* Big price + 24h */}
+          {/* Big price + 24h Header */}
           <div className="hairline-b pb-4 flex items-end justify-between gap-4 flex-wrap">
             <div>
               <div className="text-xs text-muted uppercase tracking-wide mb-1">
@@ -290,7 +341,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                   : "border-transparent text-muted hover:text-text"
               }`}
             >
-              Plan & Alert
+              Plan, Alerts &amp; Screenshots
             </button>
             <button
               type="button"
@@ -310,119 +361,234 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
               <SetupRevisionTimeline itemId={item?.id} symbol={symbol} />
             </div>
           ) : (
-            /* Trade alert / plan */
+            /* Trade alert / plan Form */
             <form onSubmit={handleSave} className="flex flex-col gap-4">
-            <div>
-              <div className="text-xs text-muted uppercase tracking-wide mb-3">
-                Price alert
+              {/* Position Side (Long vs Short) */}
+              <div className="flex flex-col gap-1.5">
+                <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
+                  Position / Side <span className="text-loss">*</span>
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPosition("long")}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                      position === "long"
+                        ? "bg-gain/20 text-gain border-gain shadow-sm"
+                        : "bg-panel-soft/60 hover:bg-panel-soft text-muted border-line"
+                    }`}
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M7 17L17 7M17 7H7M17 7V17" />
+                    </svg>
+                    <span>↗ LONG</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPosition("short")}
+                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                      position === "short"
+                        ? "bg-loss/20 text-loss border-loss shadow-sm"
+                        : "bg-panel-soft/60 hover:bg-panel-soft text-muted border-line"
+                    }`}
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M7 7l10 10M17 7v10H7" />
+                    </svg>
+                    <span>↘ SHORT</span>
+                  </button>
+                </div>
               </div>
-              <div>
+
+              {/* Price Alert Box */}
+              <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-muted uppercase tracking-wide font-semibold">
+                    Price Alert Trigger
+                  </span>
+                  {ticker?.lastPrice && (
+                    <button
+                      type="button"
+                      onClick={() => setTriggerPrice(String(ticker.lastPrice))}
+                      className="text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                    >
+                      Use Last: {fmtPx(ticker.lastPrice)}
+                    </button>
+                  )}
+                </div>
+
                 <label className="flex flex-col gap-1 text-xs text-muted">
-                  Trigger price
+                  <span>Trigger price</span>
                   <input
                     type="number"
                     step="any"
-                    className={`${inputCls} max-w-48`}
+                    className={inputCls}
                     value={triggerPrice}
                     onChange={(e) => setTriggerPrice(e.target.value)}
                     placeholder="e.g. 68000"
                   />
                 </label>
+                <p className="text-[11px] text-muted">
+                  When price hits this trigger, you&apos;ll receive an in-app, desktop &amp; Discord alert for your {position.toUpperCase()} setup.
+                </p>
               </div>
-              <p className="text-xs text-muted mt-2">
-                When the last price hits this trigger — whether it goes{" "}
-                <strong>above or below</strong> — you&apos;ll get a{" "}
-                <strong>Discord</strong> + <strong>desktop</strong>{" "}
-                notification showing your trade plan below.
-              </p>
-            </div>
 
-            <div>
-              <div className="text-xs text-muted uppercase tracking-wide mb-3">
-                If triggered, this is my trade
+              {/* Trade Execution Plan */}
+              <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
+                <div className="text-xs text-muted uppercase tracking-wide font-semibold">
+                  Execution Plan (If Triggered)
+                </div>
+
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  <span>Order type</span>
+                  <select
+                    className={`${inputCls} cursor-pointer`}
+                    value={orderType}
+                    onChange={(e) =>
+                      setOrderType(e.target.value as OrderType | "")
+                    }
+                  >
+                    <option value="">— Choose —</option>
+                    {ORDER_TYPE_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span className="flex items-center justify-between">
+                      <span>Entry (EP)</span>
+                      {ticker?.lastPrice && (
+                        <button
+                          type="button"
+                          onClick={() => setEntry(String(ticker.lastPrice))}
+                          className="text-[10px] text-accent hover:underline cursor-pointer"
+                          title="Use current market price"
+                        >
+                          Last
+                        </button>
+                      )}
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={inputCls}
+                      value={entry}
+                      onChange={(e) => setEntry(e.target.value)}
+                      placeholder="—"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>Stop loss (SL)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={inputCls}
+                      value={stopLoss}
+                      onChange={(e) => setStopLoss(e.target.value)}
+                      placeholder="—"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>Take profit (TP)</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={inputCls}
+                      value={takeProfit}
+                      onChange={(e) => setTakeProfit(e.target.value)}
+                      placeholder="—"
+                    />
+                  </label>
+                </div>
+
+                {/* R:R Ratio Badge or Directional Safety Warning */}
+                {rrRatio && (
+                  <div className="p-2 rounded-lg bg-accent/10 border border-accent/25 flex items-center justify-between text-xs font-mono text-accent">
+                    <span className="font-semibold">🎯 Risk : Reward</span>
+                    <span>1 : {rrRatio} R:R</span>
+                  </div>
+                )}
+                {riskWarning && (
+                  <div className="text-[11px] text-amber-400 font-mono">
+                    ⚠️ {riskWarning}
+                  </div>
+                )}
               </div>
-              <label className="flex flex-col gap-1 text-xs text-muted mb-3">
-                Order type
-                <select
-                  className={`${inputCls} cursor-pointer`}
-                  value={orderType}
-                  onChange={(e) =>
-                    setOrderType(e.target.value as OrderType | "")
-                  }
-                >
-                  <option value="">— Choose —</option>
-                  {ORDER_TYPE_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
+
+              {/* Strategy Notes / Thesis */}
+              <label className="flex flex-col gap-1 text-xs text-muted">
+                <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
+                  Strategy Notes / Thesis (Optional)
+                </span>
+                <textarea
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="e.g. 4H bull flag breakout, tight invalidation below support..."
+                  className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none font-mono"
+                />
               </label>
-              <div className="grid grid-cols-3 gap-3">
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Entry
-                  <input
-                    type="number"
-                    step="any"
-                    className={inputCls}
-                    value={entry}
-                    onChange={(e) => setEntry(e.target.value)}
-                    placeholder="—"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Stop loss
-                  <input
-                    type="number"
-                    step="any"
-                    className={inputCls}
-                    value={stopLoss}
-                    onChange={(e) => setStopLoss(e.target.value)}
-                    placeholder="—"
-                  />
-                </label>
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  Take profit
-                  <input
-                    type="number"
-                    step="any"
-                    className={inputCls}
-                    value={takeProfit}
-                    onChange={(e) => setTakeProfit(e.target.value)}
-                    placeholder="—"
-                  />
-                </label>
-              </div>
-            </div>
 
-            {savedMsg && (
-              <div className="text-xs text-gain">{savedMsg}</div>
-            )}
+              {/* Multi-Screenshot Uploader (1–5 images) */}
+              <MultiScreenshotUploader
+                urls={screenshotUrls}
+                onChange={setScreenshotUrls}
+                maxFiles={5}
+                entityId={`watchlist-${item?.id || symbol}`}
+                label="Chart Screenshots (1–5 images)"
+                helpText="Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."
+              />
 
-            <div className="flex justify-end gap-2 hairline-t pt-3">
-              {triggerPrice && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTriggerPrice("");
-                    setEntry("");
-                    setStopLoss("");
-                    setTakeProfit("");
-                  }}
-                  className="px-3 py-2 text-xs btn-ghost cursor-pointer"
-                >
-                  Clear
-                </button>
+              {savedMsg && (
+                <div className="text-xs text-gain font-medium">{savedMsg}</div>
               )}
-              <button
-                type="submit"
-                disabled={saving}
-                className="px-4 py-2 text-sm accent-btn font-semibold cursor-pointer disabled:opacity-60"
-              >
-                {saving ? "Saving…" : "Save alert"}
-              </button>
-            </div>
-          </form>
+
+              <div className="flex justify-end gap-2 hairline-t pt-3">
+                {triggerPrice && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTriggerPrice("");
+                      setEntry("");
+                      setStopLoss("");
+                      setTakeProfit("");
+                      setNotes("");
+                      setScreenshotUrls([]);
+                    }}
+                    className="px-3 py-2 text-xs btn-ghost cursor-pointer"
+                  >
+                    Clear All
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 text-sm accent-btn font-semibold cursor-pointer disabled:opacity-60"
+                >
+                  {saving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </form>
           )}
         </div>
       )}

@@ -131,11 +131,35 @@ export async function POST(request: Request) {
     fired_at: nowIso,
   };
 
-  const { data, error } = await supabase
+  const screenshotUrls = Array.isArray(b.screenshot_urls)
+    ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)
+    : b.screenshot_url
+    ? [String(b.screenshot_url)]
+    : [];
+
+  if (screenshotUrls.length > 0) {
+    insertData.screenshot_urls = screenshotUrls;
+    insertData.screenshot_url = screenshotUrls[0] ?? null;
+  }
+
+  let { data, error } = await supabase
     .from("trade_alerts")
     .insert(insertData)
     .select("*")
     .single();
+
+  // Retry fallback if screenshot_urls column does not exist yet
+  if (error && (error.message.includes("screenshot") || error.code === "PGRST204" || error.code === "42703")) {
+    delete insertData.screenshot_urls;
+    delete insertData.screenshot_url;
+    const retry = await supabase
+      .from("trade_alerts")
+      .insert(insertData)
+      .select("*")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });
@@ -164,6 +188,8 @@ export async function POST(request: Request) {
           entry_time: nowIso,
           exit_time: nowIso,
           tags: ["Manual Trade"],
+          screenshot_url: screenshotUrls[0] ?? null,
+          screenshot_urls: screenshotUrls,
           post_trade_review: [
             "Manually logged closed trade.",
             `Entry: ${entryPrice} | Exit: ${exitPrice}`,
