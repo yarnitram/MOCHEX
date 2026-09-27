@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { removeTokenFromEnvLocal } from "@/lib/google-drive";
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -11,6 +12,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // 1. Remove from database
   const { error } = await supabase
     .from("user_settings")
     .update({
@@ -25,5 +27,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
+  // 2. Remove from .env.local if present
+  await removeTokenFromEnvLocal();
+
   return NextResponse.json({ ok: true });
 }
+

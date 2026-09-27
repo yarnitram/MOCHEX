@@ -227,3 +227,111 @@ export async function uploadImageToGoogleDrive(
   const cdnUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
   return { fileId, url: cdnUrl };
 }
+
+/**
+ * Get active Site-Wide Google Drive Refresh Token.
+ * Resolution priority:
+ * 1. process.env.GOOGLE_DRIVE_REFRESH_TOKEN (from .env.local or production host)
+ * 2. Supabase user_settings where google_drive_connected = true and google_drive_refresh_token is not null
+ */
+export async function getSiteWideGoogleDriveToken(supabase?: any): Promise<{
+  refreshToken: string | null;
+  email: string | null;
+  isEnv: boolean;
+}> {
+  // 1. Check environment variable
+  if (process.env.GOOGLE_DRIVE_REFRESH_TOKEN && process.env.GOOGLE_DRIVE_REFRESH_TOKEN.trim() !== "") {
+    return {
+      refreshToken: process.env.GOOGLE_DRIVE_REFRESH_TOKEN.trim(),
+      email: process.env.GOOGLE_DRIVE_EMAIL || null,
+      isEnv: true,
+    };
+  }
+
+  // 2. Check database
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from("user_settings")
+        .select("google_drive_refresh_token, google_drive_email")
+        .eq("google_drive_connected", true)
+        .not("google_drive_refresh_token", "is", null)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (data?.google_drive_refresh_token) {
+        return {
+          refreshToken: data.google_drive_refresh_token,
+          email: data.google_drive_email || null,
+          isEnv: false,
+        };
+      }
+    } catch (e) {
+      console.warn("Could not query site-wide Google Drive token from database:", e);
+    }
+  }
+
+  return { refreshToken: null, email: null, isEnv: false };
+}
+
+/**
+ * Persist site-wide refresh token locally to .env.local if running in a Node environment.
+ */
+export async function syncTokenToEnvLocal(refreshToken: string, email?: string | null): Promise<boolean> {
+  try {
+    if (typeof window !== "undefined") return false;
+    const fs = await import("fs");
+    const path = await import("path");
+    const envPath = path.resolve(process.cwd(), ".env.local");
+    if (!fs.existsSync(envPath)) return false;
+
+    let content = fs.readFileSync(envPath, "utf8");
+    if (content.includes("GOOGLE_DRIVE_REFRESH_TOKEN=")) {
+      content = content.replace(/GOOGLE_DRIVE_REFRESH_TOKEN=.*/g, `GOOGLE_DRIVE_REFRESH_TOKEN=${refreshToken}`);
+    } else {
+      content = content.trim() + `\nGOOGLE_DRIVE_REFRESH_TOKEN=${refreshToken}\n`;
+    }
+
+    if (email) {
+      if (content.includes("GOOGLE_DRIVE_EMAIL=")) {
+        content = content.replace(/GOOGLE_DRIVE_EMAIL=.*/g, `GOOGLE_DRIVE_EMAIL=${email}`);
+      } else {
+        content = content.trim() + `\nGOOGLE_DRIVE_EMAIL=${email}\n`;
+      }
+    }
+
+    fs.writeFileSync(envPath, content, "utf8");
+    process.env.GOOGLE_DRIVE_REFRESH_TOKEN = refreshToken;
+    if (email) process.env.GOOGLE_DRIVE_EMAIL = email;
+    return true;
+  } catch (err) {
+    console.warn("Could not write GOOGLE_DRIVE_REFRESH_TOKEN to .env.local:", err);
+    return false;
+  }
+}
+
+/**
+ * Remove token from .env.local on disconnect.
+ */
+export async function removeTokenFromEnvLocal(): Promise<boolean> {
+  try {
+    if (typeof window !== "undefined") return false;
+    const fs = await import("fs");
+    const path = await import("path");
+    const envPath = path.resolve(process.cwd(), ".env.local");
+    if (!fs.existsSync(envPath)) return false;
+
+    let content = fs.readFileSync(envPath, "utf8");
+    content = content.replace(/GOOGLE_DRIVE_REFRESH_TOKEN=.*\n?/g, "");
+    content = content.replace(/GOOGLE_DRIVE_EMAIL=.*\n?/g, "");
+    fs.writeFileSync(envPath, content, "utf8");
+
+    delete process.env.GOOGLE_DRIVE_REFRESH_TOKEN;
+    delete process.env.GOOGLE_DRIVE_EMAIL;
+    return true;
+  } catch {
+    return false;
+  }
+}
+

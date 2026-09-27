@@ -70,6 +70,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
     trade?.notes?.screenshot_url ? normalizeScreenshotUrl(trade.notes.screenshot_url) : ""
   );
   const [uploadingScreenshot, setUploadingScreenshot] = useState(false);
+  const [uploadStorageType, setUploadStorageType] = useState<string | null>(null);
 
   const [selectedTags, setSelectedTags] = useState<string[]>(
     trade?.tags.map((t) => t.name) ?? []
@@ -103,6 +104,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
 
       const data = await res.json();
       setScreenshotUrl(data.url);
+      setUploadStorageType(data.storage || null);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -777,16 +779,30 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 className="w-16 h-12 object-cover rounded-lg border border-line"
               />
               <div className="flex flex-col flex-1 min-w-0">
-                <span className="text-xs font-semibold text-text truncate">
-                  Screenshot attached ✓
-                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-text truncate">
+                    Screenshot attached ✓
+                  </span>
+                  {screenshotUrl.includes("lh3.googleusercontent.com") || uploadStorageType === "google_drive" ? (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-gain/15 text-gain border border-gain/20 font-semibold">
+                      Google Drive Bucket (0 KB Supabase)
+                    </span>
+                  ) : (
+                    <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-panel text-muted border border-line">
+                      Direct Image
+                    </span>
+                  )}
+                </div>
                 <span className="text-[10px] text-muted font-mono truncate">
                   {screenshotUrl}
                 </span>
               </div>
               <button
                 type="button"
-                onClick={() => setScreenshotUrl("")}
+                onClick={() => {
+                  setScreenshotUrl("");
+                  setUploadStorageType(null);
+                }}
                 className="text-xs text-loss hover:underline cursor-pointer px-2"
               >
                 Remove

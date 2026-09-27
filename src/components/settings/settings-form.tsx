@@ -82,20 +82,36 @@ export function SettingsForm({ userEmail, initial }: Props) {
   const [audioEnabled, setAudioStateEnabled] = useState(true);
   const [audioVolume, setAudioStateVolume] = useState(0.5);
 
-  // ---- Google Drive Screenshot Storage State ----
+  // ---- Site-Wide Google Drive Storage State ----
   const [gdriveConnected, setGdriveConnected] = useState(initial.google_drive_connected ?? false);
   const [gdriveEmail, setGdriveEmail] = useState(initial.google_drive_email ?? null);
+  const [gdriveToken, setGdriveToken] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<boolean>(false);
   const [disconnectingGdrive, setDisconnectingGdrive] = useState(false);
 
   useEffect(() => {
     setAudioStateEnabled(isAudioEnabled());
     setAudioStateVolume(getAudioVolume());
 
+    // Fetch live status of site-wide Google Drive bucket
+    fetch("/api/auth/google-drive/status")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.siteWideActive) {
+          setGdriveConnected(true);
+          if (data.email) setGdriveEmail(data.email);
+          if (data.refreshToken) setGdriveToken(data.refreshToken);
+        }
+      })
+      .catch(() => {});
+
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      if (params.get("gdrive") === "connected") {
-        setStatus("Google Drive connected successfully! All new screenshots will save directly to your Drive ✓");
+      if (params.get("gdrive")?.startsWith("connected")) {
+        setStatus("Site-wide Google Drive connected successfully! All user screenshots will now save to this Drive (0 KB on Supabase) ✓");
         setGdriveConnected(true);
+        if (params.get("email")) setGdriveEmail(params.get("email"));
+        if (params.get("token")) setGdriveToken(params.get("token"));
       }
       if (params.get("error")) {
         setError(params.get("error"));
@@ -103,8 +119,15 @@ export function SettingsForm({ userEmail, initial }: Props) {
     }
   }, []);
 
+  function handleCopyToken() {
+    if (!gdriveToken) return;
+    navigator.clipboard.writeText(`GOOGLE_DRIVE_REFRESH_TOKEN=${gdriveToken}`);
+    setCopiedToken(true);
+    setTimeout(() => setCopiedToken(false), 2500);
+  }
+
   async function handleDisconnectGdrive() {
-    if (!window.confirm("Disconnect your Google Drive account? New screenshots will save to Supabase storage.")) {
+    if (!window.confirm("Disconnect site-wide Google Drive bucket? All future screenshots will fall back to Supabase storage.")) {
       return;
     }
     setDisconnectingGdrive(true);
@@ -113,7 +136,8 @@ export function SettingsForm({ userEmail, initial }: Props) {
       if (res.ok) {
         setGdriveConnected(false);
         setGdriveEmail(null);
-        setStatus("Google Drive disconnected successfully ✓");
+        setGdriveToken(null);
+        setStatus("Site-wide Google Drive disconnected successfully ✓");
       } else {
         const d = await res.json().catch(() => ({}));
         setError(d.error || "Failed to disconnect Google Drive");
@@ -1134,41 +1158,42 @@ export function SettingsForm({ userEmail, initial }: Props) {
           </div>
         </fieldset>
 
-        {/* Screenshot Storage & Google Drive Backend */}
+        {/* Site-Wide Screenshot Storage & Google Drive Bucket */}
         <fieldset className="border border-line rounded-lg p-4 sm:p-5 flex flex-col gap-4 bg-panel/40">
           <legend className="px-1 text-xs uppercase tracking-wider font-semibold text-text font-mono flex items-center gap-1.5">
             <span>💾</span>
-            <span>Screenshot Storage &amp; Google Drive</span>
+            <span>Site-Wide Screenshot Storage (Google Drive Bucket)</span>
           </legend>
 
           <div className="flex flex-col gap-1.5">
             <p className="text-xs text-muted leading-relaxed">
-              Save your Supabase storage quota by saving trade chart screenshots directly to your personal <span className="text-text font-semibold">15 GB free Google Drive</span>.
+              Use a single, centralized Google Drive folder (<span className="text-accent font-mono font-medium">Mochex Trade Screenshots</span>) as the free cloud storage bucket for the <span className="text-text font-semibold">entire website</span>. All traders can upload screenshots and paste via <kbd className="px-1 py-0.5 rounded bg-canvas border border-line text-[9px] font-mono">Ctrl+V</kbd> without creating or connecting personal Google accounts!
             </p>
           </div>
 
           <div className="rounded-lg border border-line bg-panel-soft/40 p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg bg-canvas border border-line flex items-center justify-center text-lg">
+              <div className="w-10 h-10 rounded-xl bg-canvas border border-line flex items-center justify-center text-xl">
                 📁
               </div>
               <div className="flex flex-col">
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-semibold text-text">Google Drive Cloud Storage</span>
+                  <span className="text-xs font-semibold text-text">Site-Wide Google Drive Bucket</span>
                   {gdriveConnected ? (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-gain/15 text-gain border border-gain/20">
-                      ✓ Connected
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-gain/15 text-gain border border-gain/20 flex items-center gap-1.5 font-bold">
+                      <span className="w-1.5 h-1.5 rounded-full bg-gain animate-pulse" />
+                      Active (0 KB Supabase)
                     </span>
                   ) : (
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-panel text-muted border border-line">
-                      Not Connected
+                      Inactive (Supabase Fallback)
                     </span>
                   )}
                 </div>
-                <span className="text-[11px] text-muted">
-                  {gdriveConnected && gdriveEmail
-                    ? `Connected as ${gdriveEmail} · 0 bytes used on Supabase`
-                    : "Connect to save 100% of Supabase storage quota"}
+                <span className="text-[11px] text-muted mt-0.5">
+                  {gdriveConnected
+                    ? `Connected account: ${gdriveEmail || "Central Bucket"} · 100% of user screenshots route here`
+                    : "Authorize your Google account once to activate site-wide Drive uploads for all users"}
                 </span>
               </div>
             </div>
@@ -1181,24 +1206,58 @@ export function SettingsForm({ userEmail, initial }: Props) {
                   disabled={disconnectingGdrive}
                   className="px-3 py-1.5 text-xs text-loss hover:bg-loss/10 border border-loss/20 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                 >
-                  {disconnectingGdrive ? "Disconnecting…" : "Disconnect"}
+                  {disconnectingGdrive ? "Disconnecting…" : "Disconnect Bucket"}
                 </button>
               ) : (
                 <a
                   href="/api/auth/google-drive"
-                  className="accent-btn px-3.5 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  className="accent-btn px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-2 cursor-pointer shadow-xs"
                 >
-                  <span>🔗</span>
-                  <span>Connect Google Drive</span>
+                  <span>⚡</span>
+                  <span>Authorize Site-Wide Google Drive</span>
                 </a>
               )}
             </div>
           </div>
 
+          {/* Vercel / Production Deployment Helper */}
+          {gdriveConnected && gdriveToken && (
+            <div className="rounded-lg border border-accent/30 bg-accent/5 p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 text-xs font-semibold text-text">
+                  <span>🚀 Production Deployment (Vercel / Hosting)</span>
+                  <span className="text-[10px] font-mono text-accent bg-accent/15 px-2 py-0.5 rounded border border-accent/20">
+                    Ready
+                  </span>
+                </div>
+                <p className="text-[11px] text-muted">
+                  Add this environment variable in your Vercel Project Settings so your live site uses this same Google Drive bucket:
+                </p>
+                <code className="text-[11px] font-mono text-accent bg-canvas/80 px-2 py-1 rounded border border-line break-all max-w-xl select-all">
+                  GOOGLE_DRIVE_REFRESH_TOKEN={gdriveToken.slice(0, 16)}...{gdriveToken.slice(-6)}
+                </code>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCopyToken}
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-accent text-white hover:bg-accent/90 transition-colors whitespace-nowrap self-end sm:self-center cursor-pointer shadow-xs"
+              >
+                {copiedToken ? "Copied ✓" : "Copy Token for Vercel"}
+              </button>
+            </div>
+          )}
+
           <div className="rounded-md border border-line/60 bg-canvas/50 p-3 text-[11px] text-muted flex flex-col gap-1.5">
-            <span className="text-text font-medium">💡 Zero-Setup Alternative:</span>
+            <span className="text-text font-medium">💡 How this works:</span>
             <span>
-              You don&apos;t even need to connect an account! You can paste any public Google Drive sharing link (<code className="text-accent text-[10px]">https://drive.google.com/file/d/...</code>) directly into any trade, and Mochex will automatically render it as a direct image.
+              1. When you authorize, MOCHEX creates a folder named <span className="text-text font-mono font-semibold">Mochex Trade Screenshots</span> on your Google Drive.
+            </span>
+            <span>
+              2. Any trader on the platform who uploads a screenshot or presses <code className="text-accent text-[10px]">Ctrl+V</code> will save their file into this folder.
+            </span>
+            <span>
+              3. Files are served via Google&apos;s direct CDN (<code className="text-accent text-[10px]">https://lh3.googleusercontent.com/d/...</code>) without using any of your Supabase storage quota!
             </span>
           </div>
         </fieldset>

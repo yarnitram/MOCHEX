@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeScreenshotUrl } from "@/lib/screenshot-helpers";
-import { uploadImageToGoogleDrive } from "@/lib/google-drive";
+import { uploadImageToGoogleDrive, getSiteWideGoogleDriveToken } from "@/lib/google-drive";
 
 /**
  * POST /api/trades/screenshot
  * Supports:
  * 1. JSON payload: { tradeId, url? } (e.g. Google Drive link, TradingView snapshot, or direct image URL)
- * 2. Multipart form data: { file, tradeId } (Uploads directly to Google Drive if connected, saving Supabase quota!)
+ * 2. Multipart form data: { file, tradeId } (Uploads directly to site-wide Google Drive bucket, saving Supabase quota!)
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -29,25 +29,33 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "file required" }, { status: 400 });
       }
 
-      // Check if user has Google Drive connected
-      const { data: settings } = await supabase
-        .from("user_settings")
-        .select("google_drive_connected, google_drive_refresh_token")
-        .eq("user_id", user.id)
-        .maybeSingle();
+      // Check for Site-Wide Google Drive bucket first, then per-user fallback
+      const siteWide = await getSiteWideGoogleDriveToken(supabase);
+      let effectiveToken = siteWide.refreshToken;
+
+      if (!effectiveToken) {
+        const { data: userSettings } = await supabase
+          .from("user_settings")
+          .select("google_drive_connected, google_drive_refresh_token")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (userSettings?.google_drive_connected && userSettings.google_drive_refresh_token) {
+          effectiveToken = userSettings.google_drive_refresh_token;
+        }
+      }
 
       let finalUrl: string;
       let storageType = "supabase";
 
-      if (settings?.google_drive_connected && settings.google_drive_refresh_token) {
-        // --- UPLOAD DIRECTLY TO GOOGLE DRIVE (0 BYTES ON SUPABASE!) ---
+      if (effectiveToken) {
+        // --- UPLOAD DIRECTLY TO GOOGLE DRIVE BUCKET (0 BYTES ON SUPABASE!) ---
         const buffer = Buffer.from(await file.arrayBuffer());
         const filename = `trade-${tradeId}-${Date.now()}.jpg`;
         const { url: gdriveUrl } = await uploadImageToGoogleDrive(
           buffer,
           filename,
           file.type || "image/jpeg",
-          settings.google_drive_refresh_token
+          effectiveToken
         );
         finalUrl = gdriveUrl;
         storageType = "google_drive";

@@ -225,7 +225,14 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
           {/* Screenshot Section */}
           <div className="hairline-t pt-4">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-mono uppercase text-muted">Chart Screenshot</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono uppercase text-muted">Chart Screenshot</span>
+                {screenshot && (screenshot.includes("lh3.googleusercontent.com") || screenshot.includes("drive.google.com")) && (
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-gain/15 text-gain border border-gain/20 font-semibold">
+                    Google Drive Bucket
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] text-muted">
                 Tip: Press <kbd className="px-1 py-0.5 rounded bg-canvas border border-line text-[9px] font-mono">Ctrl+V</kbd> to paste from clipboard
               </span>
