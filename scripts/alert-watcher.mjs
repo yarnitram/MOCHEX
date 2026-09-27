@@ -164,13 +164,73 @@ async function checkAll() {
       `[${stamp()}] TRIGGER ${item.symbol} last=${price} trigger=${trigger}`
     );
 
-    // Log the fired token data to trade_alerts — this feeds the /trades
-    // page table. Best-effort: a failed insert never skips notifications.
+    const isTriggerLimit = item.order_type === "trigger_limit";
+    const isLong =
+      item.entry_price != null && item.stop_loss != null
+        ? Number(item.entry_price) >= Number(item.stop_loss)
+        : item.trigger_direction === "below";
+
+    if (isTriggerLimit) {
+      // Trigger Limit: spawn new active watchlist item with trigger = EP, order_type = Limit
+      if (item.entry_price != null) {
+        const epDirection = isLong ? "below" : "above";
+        try {
+          await supabase("/rest/v1/watchlist_items", {
+            method: "POST",
+            body: JSON.stringify({
+              user_id: item.user_id,
+              symbol: item.symbol,
+              trigger_price: item.entry_price,
+              trigger_direction: epDirection,
+              entry_price: item.entry_price,
+              stop_loss: item.stop_loss,
+              take_profit: item.take_profit,
+              order_type: "limit",
+              notes: item.notes,
+              screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+              screenshot_url: item.screenshot_url ?? null,
+            }),
+            headers: { Prefer: "return=minimal" },
+          });
+        } catch (e) {
+          console.error("TL spawn error:", e.message);
+        }
+      }
+    } else {
+      // Limit or Market: log to trade_alerts for the /trades page
+      try {
+        await supabase("/rest/v1/trade_alerts", {
+          method: "POST",
+          body: JSON.stringify({
+            user_id: item.user_id,
+            symbol: item.symbol,
+            trigger_price: item.trigger_price,
+            trigger_direction: item.trigger_direction ?? null,
+            fired_price: price,
+            entry_price: item.entry_price ?? null,
+            stop_loss: item.stop_loss ?? null,
+            take_profit: item.take_profit ?? null,
+            order_type: item.order_type ?? null,
+            notes: item.notes ?? null,
+            watchlist_item_id: item.id,
+            fired_at: new Date().toISOString(),
+            screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+            screenshot_url: item.screenshot_url ?? null,
+          }),
+          headers: { Prefer: "return=minimal" },
+        });
+      } catch (e) {
+        console.error("Trade-log error:", e.message);
+      }
+    }
+
+    // Move original item to triggered_watchlist_items archive
     try {
-      await supabase("/rest/v1/trade_alerts", {
+      await supabase("/rest/v1/triggered_watchlist_items", {
         method: "POST",
         body: JSON.stringify({
           user_id: item.user_id,
+          source_item_id: item.id,
           symbol: item.symbol,
           trigger_price: item.trigger_price,
           trigger_direction: item.trigger_direction ?? null,
@@ -180,13 +240,23 @@ async function checkAll() {
           take_profit: item.take_profit ?? null,
           order_type: item.order_type ?? null,
           notes: item.notes ?? null,
-          watchlist_item_id: item.id,
           fired_at: new Date().toISOString(),
+          screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+          screenshot_url: item.screenshot_url ?? null,
         }),
         headers: { Prefer: "return=minimal" },
       });
     } catch (e) {
-      console.error("Trade-log error:", e.message);
+      // non-fatal if table unmigrated
+    }
+
+    // Remove from active watchlist_items
+    try {
+      await supabase(`/rest/v1/watchlist_items?id=eq.${item.id}`, {
+        method: "DELETE",
+      });
+    } catch (e) {
+      console.error("Watchlist delete error:", e.message);
     }
 
     // Build notification content with the trade plan.
@@ -195,24 +265,27 @@ async function checkAll() {
     if (item.stop_loss != null) plan.push(`**Stop:** ${item.stop_loss}`);
     if (item.take_profit != null) plan.push(`**Target:** ${item.take_profit}`);
     const planText = plan.length
-      ? `\nTrade plan — ${plan.join(" · ")}`
+      ? `\nTrade plan (${isLong ? "LONG ↗" : "SHORT ↘"}) — ${plan.join(" · ")}`
       : "";
 
     const settings = settingsByUser[item.user_id];
+    const notifyTitle = isTriggerLimit
+      ? `🎯 **${item.symbol}** Trigger Limit hit — Limit armed at $${item.entry_price}`
+      : `📈 **${item.symbol}** hit **$${price}** (trigger $${trigger})`;
 
     // Discord
     if (settings?.notify_discord !== false && settings?.discord_webhook_url) {
       await fireDiscord(
         settings.discord_webhook_url,
-        `📈 **${item.symbol}** hit **$${price}** (trigger $${trigger})${planText}`
+        `${notifyTitle}${planText}`
       ).catch((e) => console.error("Discord error:", e.message));
     }
 
     // Desktop
     if (settings?.notify_desktop !== false) {
       await desktopNotify(
-        `${item.symbol} alert`,
-        `Price $${price} hit trigger $${trigger}.${plan.length ? `\n${plan.join(" · ")}` : ""}`
+        `${item.symbol} ${isTriggerLimit ? "TL Armed" : "Alert"}`,
+        `Price $${price} reached trigger $${trigger}.${plan.length ? `\n${plan.join(" · ")}` : ""}`
       ).catch(() => {});
     }
 

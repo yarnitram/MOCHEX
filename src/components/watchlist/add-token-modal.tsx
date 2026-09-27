@@ -191,9 +191,39 @@ export function AddTokenModal({
 
   function handlePositionChange(newPos: "long" | "short") {
     setPosition(newPos);
-    // When Long: default to "below" (buy the dip/pullback)
-    // When Short: default to "above" (short the rally/resistance)
-    setTriggerDirection(newPos === "long" ? "below" : "above");
+  }
+
+  function handleTriggerPriceChange(val: string) {
+    setTriggerPrice(val);
+    const trig = parseFloat(val);
+    const last = selectedToken?.lastPrice;
+    if (!isNaN(trig) && last != null && last > 0) {
+      if (trig > last) {
+        setTriggerDirection("above");
+      } else if (trig < last) {
+        setTriggerDirection("below");
+      }
+    }
+  }
+
+  function handleEntryChange(val: string) {
+    setEntryPrice(val);
+    const ep = parseFloat(val);
+    const sl = parseFloat(stopLoss);
+    if (!isNaN(ep) && !isNaN(sl)) {
+      if (sl < ep) setPosition("long");
+      else if (sl > ep) setPosition("short");
+    }
+  }
+
+  function handleStopLossChange(val: string) {
+    setStopLoss(val);
+    const sl = parseFloat(val);
+    const ep = parseFloat(entryPrice);
+    if (!isNaN(sl) && !isNaN(ep)) {
+      if (sl < ep) setPosition("long");
+      else if (sl > ep) setPosition("short");
+    }
   }
 
   // Calculate live Risk/Reward ratio
@@ -649,7 +679,7 @@ export function AddTokenModal({
                 {selectedToken.lastPrice > 0 && (
                   <button
                     type="button"
-                    onClick={() => setTriggerPrice(String(selectedToken.lastPrice))}
+                    onClick={() => handleTriggerPriceChange(String(selectedToken.lastPrice))}
                     className="text-[11px] font-mono text-accent hover:underline cursor-pointer"
                   >
                     Use Last: {fmtPx(selectedToken.lastPrice)}
@@ -667,7 +697,7 @@ export function AddTokenModal({
                     step="any"
                     required
                     value={triggerPrice}
-                    onChange={(e) => setTriggerPrice(e.target.value)}
+                    onChange={(e) => handleTriggerPriceChange(e.target.value)}
                     placeholder="e.g. 64200"
                     className={inputCls}
                   />
@@ -727,13 +757,23 @@ export function AddTokenModal({
                     <span>
                       Entry (EP) <span className="text-loss">*</span>
                     </span>
+                    {selectedToken.lastPrice > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => handleEntryChange(String(selectedToken.lastPrice))}
+                        className="text-[10px] text-accent hover:underline cursor-pointer"
+                        title="Use current market price"
+                      >
+                        Last
+                      </button>
+                    )}
                   </span>
                   <input
                     type="number"
                     step="any"
                     required
                     value={entryPrice}
-                    onChange={(e) => setEntryPrice(e.target.value)}
+                    onChange={(e) => handleEntryChange(e.target.value)}
                     placeholder="0.00"
                     className={inputCls}
                   />
@@ -748,7 +788,7 @@ export function AddTokenModal({
                     step="any"
                     required
                     value={stopLoss}
-                    onChange={(e) => setStopLoss(e.target.value)}
+                    onChange={(e) => handleStopLossChange(e.target.value)}
                     placeholder="0.00"
                     className={inputCls}
                   />

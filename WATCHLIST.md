@@ -18,7 +18,8 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
 3. **All-in-One Setup Builder & Harmonized Modify Modals**:
    - Both **Add Setup** (`AddTokenModal`) and **Modify Setup** (`CoinDetailModal`) share a unified, synchronized schema:
      - Real-time MEXC futures search with debounced autocomplete (in Add Modal) and live market price badges.
-     - Position side toggle: `↗ LONG` (green) and `↘ SHORT` (red).
+     - Position side toggle: `↗ LONG` (green) and `↘ SHORT` (red), mathematically tied to Entry Price, Stop Loss, and Take Profit.
+     - **Alert Condition Selector**: Independent trigger crossing condition (`Price drops to or below ≤` vs `Price rises to or above ≥`) with smart auto-defaulting based on `Trigger Price` vs current market price. Supports both Breakout (`rises above`) and Dip-Buy (`drops below`) setups.
      - 1-click **"Use Last Price"** shortcuts for Trigger Price and Entry Price.
      - Strategy notes and thesis textarea.
      - Real-time **Risk:Reward (R:R)** calculator badge (`🎯 1 : X.X R:R`).
@@ -28,6 +29,7 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
 4. **Mandatory Setup Parameters & Safety Guardrails**:
    - Every Watchlist setup strictly requires complete trade parameters before submission:
      - **Trigger Price \***: Positive price condition that arms/fires the alert (`> 0`).
+     - **Alert Condition \***: Direction of trigger price crossing (`drops to or below ≤` or `rises to or above ≥`).
      - **Order Type \***: Execution plan order type (`Limit`, `Trigger Limit`, or `Market`).
      - **Entry Price (EP) \***: Intended trade entry price (`> 0`).
      - **Stop Loss (SL) \***: Risk cut-off price (`> 0`).
@@ -41,8 +43,8 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
    - Attach 1 to 5 chart screenshots to any watchlist setup.
    - Watchlist table displays camera badge (`📸 N`) opening the high-resolution `ImageLightboxModal` with thumbnail strip, full-screen view, and keyboard navigation.
 
-6. **Dedicated Position Column**:
-   - The main Watchlist table features a dedicated **Position** column right after `Coin`:
+6. **Dedicated Position Column (Derived from EP/SL/TP)**:
+   - The main Watchlist table features a dedicated **Position** column derived directly from `EP` and `SL` (`EP >= SL ? "LONG" : "SHORT"`):
      - `↗ LONG`: Green badge (`bg-gain/15 text-gain border border-gain/20`) with directional up-right icon.
      - `↘ SHORT`: Red badge (`bg-loss/15 text-loss border border-loss/20`) with directional down-right icon.
 
@@ -93,7 +95,8 @@ When a `Trigger Limit` item fires:
 2. A **new watchlist item** is automatically spawned in the active watchlist with:
    - `trigger_price` set to the original **Entry Price (EP)**.
    - `order_type` updated to `limit`.
-   - `trigger_direction` auto-inferred from live price vs EP (`below` if current price > EP, `above` if current price < EP).
+   - `trigger_direction` aligned with the position derived from EP and SL (`below` for Longs, `above` for Shorts).
+   - `screenshot_urls` fully preserved from the original setup.
 3. **No `/trades` row is logged yet** — the token remains in the active watchlist until the new Limit trigger (at EP) is reached.
 
 ---

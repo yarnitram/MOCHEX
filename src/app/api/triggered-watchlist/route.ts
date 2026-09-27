@@ -58,24 +58,50 @@ export async function POST(request: Request) {
       ? b.order_type
       : null;
 
-  const { data, error } = await supabase
+  const rawScreenshots = b.screenshot_urls;
+  const screenshotUrls: string[] = Array.isArray(rawScreenshots)
+    ? rawScreenshots.filter((u): u is string => typeof u === "string" && u.trim() !== "")
+    : [];
+  const screenshotUrl =
+    typeof b.screenshot_url === "string" && b.screenshot_url.trim() !== ""
+      ? b.screenshot_url.trim()
+      : screenshotUrls[0] ?? null;
+
+  const insertPayload: Record<string, unknown> = {
+    user_id: user.id,
+    source_item_id: b.source_item_id ? String(b.source_item_id) : null,
+    symbol,
+    trigger_price: numOrNull(b.trigger_price),
+    trigger_direction: triggerDirection,
+    fired_price: numOrNull(b.fired_price),
+    entry_price: numOrNull(b.entry_price),
+    stop_loss: numOrNull(b.stop_loss),
+    take_profit: numOrNull(b.take_profit),
+    order_type: orderType,
+    notes: b.notes?.toString() || null,
+    fired_at: b.fired_at ? String(b.fired_at) : new Date().toISOString(),
+    screenshot_urls: screenshotUrls,
+    screenshot_url: screenshotUrl,
+  };
+
+  let { data, error } = await supabase
     .from("triggered_watchlist_items")
-    .insert({
-      user_id: user.id,
-      source_item_id: b.source_item_id ? String(b.source_item_id) : null,
-      symbol,
-      trigger_price: numOrNull(b.trigger_price),
-      trigger_direction: triggerDirection,
-      fired_price: numOrNull(b.fired_price),
-      entry_price: numOrNull(b.entry_price),
-      stop_loss: numOrNull(b.stop_loss),
-      take_profit: numOrNull(b.take_profit),
-      order_type: orderType,
-      notes: b.notes?.toString() || null,
-      fired_at: b.fired_at ? String(b.fired_at) : new Date().toISOString(),
-    })
+    .insert(insertPayload)
     .select("*")
     .single();
+
+  if (error && (error.code === "PGRST204" || error.message?.includes("screenshot") || error.code === "42703")) {
+    const fallbackPayload = { ...insertPayload };
+    delete fallbackPayload.screenshot_urls;
+    delete fallbackPayload.screenshot_url;
+    const retry = await supabase
+      .from("triggered_watchlist_items")
+      .insert(fallbackPayload)
+      .select("*")
+      .single();
+    data = retry.data;
+    error = retry.error;
+  }
 
   if (error) {
     // If the table hasn't been created yet in Supabase, return simulated item so client does not drop it
@@ -95,6 +121,8 @@ export async function POST(request: Request) {
         notes: b.notes?.toString() || null,
         fired_at: b.fired_at ? String(b.fired_at) : new Date().toISOString(),
         created_at: new Date().toISOString(),
+        screenshot_urls: screenshotUrls,
+        screenshot_url: screenshotUrl,
       };
       return NextResponse.json({ item: simulatedItem, tableMissing: true }, { status: 200 });
     }

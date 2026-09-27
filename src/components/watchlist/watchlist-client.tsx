@@ -284,12 +284,19 @@ export function WatchlistClient({
           if (claimed) {
             playTriggerSound();
 
+            const itemScreenshots = item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []);
+            const itemScreenshot = item.screenshot_url || (item.screenshot_urls?.[0] ?? null);
+
             // 1. Send notification + log trade alert for /trades page FIRST while watchlist item still exists
             if (item.order_type === "trigger_limit") {
               // Trigger Limit: spawn new watchlist item with trigger = EP, order_type = Limit
               if (item.entry_price != null) {
-                const epDirection =
-                  lastPrice > item.entry_price ? "below" : "above";
+                const isLong =
+                  item.entry_price != null && item.stop_loss != null
+                    ? item.entry_price >= item.stop_loss
+                    : item.trigger_direction === "below";
+                const epDirection = isLong ? "below" : "above";
+
                 await fetch("/api/watchlist", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -302,9 +309,10 @@ export function WatchlistClient({
                     take_profit: item.take_profit,
                     order_type: "limit",
                     notes: item.notes,
+                    screenshot_urls: itemScreenshots,
+                    screenshot_url: itemScreenshot,
                   }),
                 });
-                await reloadItems();
               }
 
               // Send notification without creating a /trades alert row
@@ -364,6 +372,8 @@ export function WatchlistClient({
                   order_type: item.order_type,
                   notes: item.notes,
                   fired_at: nowIso,
+                  screenshot_urls: itemScreenshots,
+                  screenshot_url: itemScreenshot,
                 }),
               });
 
@@ -397,6 +407,8 @@ export function WatchlistClient({
                 notes: item.notes,
                 fired_at: nowIso,
                 created_at: nowIso,
+                screenshot_urls: itemScreenshots,
+                screenshot_url: itemScreenshot,
               };
             }
 
@@ -408,6 +420,9 @@ export function WatchlistClient({
             // 3. Remove from active watchlist after trade log and triggered archive have completed
             await fetch(`/api/watchlist/${item.id}`, { method: "DELETE" }).catch(() => {});
             setItems((prev) => prev.filter((x) => x.id !== item.id));
+            if (item.order_type === "trigger_limit") {
+              await reloadItems();
+            }
           }
         } catch {
           // ignore per-item failures

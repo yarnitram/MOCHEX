@@ -111,11 +111,7 @@ export function WatchlistRow({
     : [];
 
   const side =
-    item.trigger_direction === "above"
-      ? "short"
-      : item.trigger_direction === "below"
-      ? "long"
-      : item.entry_price != null && item.stop_loss != null
+    item.entry_price != null && item.stop_loss != null
       ? item.entry_price >= item.stop_loss
         ? "long"
         : "short"
@@ -123,6 +119,10 @@ export function WatchlistRow({
       ? item.take_profit >= item.entry_price
         ? "long"
         : "short"
+      : item.trigger_direction === "above"
+      ? "short"
+      : item.trigger_direction === "below"
+      ? "long"
       : null;
   const isLong = side === "long";
 

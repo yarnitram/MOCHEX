@@ -40,6 +40,8 @@ export function WatchlistArchiveTab({
           stop_loss: item.stop_loss,
           take_profit: item.take_profit,
           notes: item.notes,
+          screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+          screenshot_url: item.screenshot_url || (item.screenshot_urls?.[0] ?? null),
         }),
       });
 
@@ -113,7 +115,15 @@ export function WatchlistArchiveTab({
           {archivedItems.map((item) => {
             const sym = cleanSymbol(item.symbol);
             const side =
-              item.trigger_direction === "above"
+              item.entry_price != null && item.stop_loss != null
+                ? item.entry_price >= item.stop_loss
+                  ? "long"
+                  : "short"
+                : item.entry_price != null && item.take_profit != null
+                ? item.take_profit >= item.entry_price
+                  ? "long"
+                  : "short"
+                : item.trigger_direction === "above"
                 ? "short"
                 : item.trigger_direction === "below"
                 ? "long"

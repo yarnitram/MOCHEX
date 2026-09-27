@@ -82,6 +82,8 @@ export function WatchlistTriggeredTab({
           stop_loss: item.stop_loss,
           take_profit: item.take_profit,
           notes: item.notes,
+          screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+          screenshot_url: item.screenshot_url || (item.screenshot_urls?.[0] ?? null),
         }),
       });
 
@@ -128,6 +130,8 @@ export function WatchlistTriggeredTab({
           notes: item.notes,
           archive_source: "triggered_deleted",
           fired_at: item.fired_at,
+          screenshot_urls: item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []),
+          screenshot_url: item.screenshot_url || (item.screenshot_urls?.[0] ?? null),
         }),
       });
 
@@ -239,7 +243,14 @@ export function WatchlistTriggeredTab({
         <tbody className="divide-y divide-line">
           {triggeredItems.map((item) => {
             const sym = cleanSymbol(item.symbol);
-            const side = item.trigger_direction === "above" ? "short" : "long";
+            const side =
+              item.entry_price != null && item.stop_loss != null
+                ? item.entry_price >= item.stop_loss
+                  ? "long"
+                  : "short"
+                : item.trigger_direction === "above"
+                ? "short"
+                : "long";
             const isLong = side === "long";
 
             const orderTypeLabel =

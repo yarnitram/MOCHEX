@@ -61,13 +61,23 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Position: derive from trigger_direction ("above" is short, "below" is long)
-  const initialPosition = item?.trigger_direction === "above" ? "short" : "long";
+  // Position: derive directly from EP & SL if present, otherwise fallback to trigger_direction
+  const initialPosition: "long" | "short" =
+    item?.entry_price != null && item?.stop_loss != null
+      ? item.entry_price >= item.stop_loss
+        ? "long"
+        : "short"
+      : item?.trigger_direction === "above"
+      ? "short"
+      : "long";
   const [position, setPosition] = useState<"long" | "short">(initialPosition);
 
   // Form state for the alert / trade plan.
   const [triggerPrice, setTriggerPrice] = useState(
     toStr(item?.trigger_price ?? item?.alert_price)
+  );
+  const [triggerDirection, setTriggerDirection] = useState<"above" | "below">(
+    item?.trigger_direction === "above" ? "above" : "below"
   );
   const [entry, setEntry] = useState(toStr(item?.entry_price));
   const [stopLoss, setStopLoss] = useState(toStr(item?.stop_loss));
@@ -170,6 +180,39 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
     }
   }
 
+  function handleTriggerPriceChange(val: string) {
+    setTriggerPrice(val);
+    const trig = parseFloat(val);
+    const last = ticker?.lastPrice;
+    if (!isNaN(trig) && last != null && last > 0) {
+      if (trig > last) {
+        setTriggerDirection("above");
+      } else if (trig < last) {
+        setTriggerDirection("below");
+      }
+    }
+  }
+
+  function handleEntryChange(val: string) {
+    setEntry(val);
+    const ep = parseFloat(val);
+    const sl = parseFloat(stopLoss);
+    if (!isNaN(ep) && !isNaN(sl)) {
+      if (sl < ep) setPosition("long");
+      else if (sl > ep) setPosition("short");
+    }
+  }
+
+  function handleStopLossChange(val: string) {
+    setStopLoss(val);
+    const sl = parseFloat(val);
+    const ep = parseFloat(entry);
+    if (!isNaN(sl) && !isNaN(ep)) {
+      if (sl < ep) setPosition("long");
+      else if (sl > ep) setPosition("short");
+    }
+  }
+
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     if (!item) {
@@ -184,14 +227,11 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
       const triggerPriceNum = triggerPrice ? parseFloat(triggerPrice) : null;
       const lastPrice = ticker?.lastPrice ?? null;
 
-      // Trigger direction is dictated by position (Long = below/pullback, Short = above/rally)
-      const triggerDirection = position === "long" ? "below" : "above";
-
       let firedImmediately = false;
       if (triggerPriceNum !== null && lastPrice !== null) {
-        if (position === "long" && lastPrice <= triggerPriceNum) {
+        if (triggerDirection === "below" && lastPrice <= triggerPriceNum) {
           firedImmediately = true;
-        } else if (position === "short" && lastPrice >= triggerPriceNum) {
+        } else if (triggerDirection === "above" && lastPrice >= triggerPriceNum) {
           firedImmediately = true;
         }
       }
@@ -425,7 +465,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                   {ticker?.lastPrice && (
                     <button
                       type="button"
-                      onClick={() => setTriggerPrice(String(ticker.lastPrice))}
+                      onClick={() => handleTriggerPriceChange(String(ticker.lastPrice))}
                       className="text-[11px] font-mono text-accent hover:underline cursor-pointer"
                     >
                       Use Last: {fmtPx(ticker.lastPrice)}
@@ -433,19 +473,35 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                   )}
                 </div>
 
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  <span>Trigger price</span>
-                  <input
-                    type="number"
-                    step="any"
-                    className={inputCls}
-                    value={triggerPrice}
-                    onChange={(e) => setTriggerPrice(e.target.value)}
-                    placeholder="e.g. 68000"
-                  />
-                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>
+                      Trigger price <span className="text-loss">*</span>
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={inputCls}
+                      value={triggerPrice}
+                      onChange={(e) => handleTriggerPriceChange(e.target.value)}
+                      placeholder="e.g. 68000"
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>Alert Condition</span>
+                    <select
+                      value={triggerDirection}
+                      onChange={(e) => setTriggerDirection(e.target.value as "above" | "below")}
+                      className={`${inputCls} cursor-pointer`}
+                    >
+                      <option value="below">Price drops to or below (≤)</option>
+                      <option value="above">Price rises to or above (≥)</option>
+                    </select>
+                  </label>
+                </div>
                 <p className="text-[11px] text-muted">
-                  When price hits this trigger, you&apos;ll receive an in-app, desktop &amp; Discord alert for your {position.toUpperCase()} setup.
+                  When price reaches this trigger, you&apos;ll receive an in-app, desktop &amp; Discord alert for your {position.toUpperCase()} setup.
                 </p>
               </div>
 
@@ -480,7 +536,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                       {ticker?.lastPrice && (
                         <button
                           type="button"
-                          onClick={() => setEntry(String(ticker.lastPrice))}
+                          onClick={() => handleEntryChange(String(ticker.lastPrice))}
                           className="text-[10px] text-accent hover:underline cursor-pointer"
                           title="Use current market price"
                         >
@@ -493,7 +549,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                       step="any"
                       className={inputCls}
                       value={entry}
-                      onChange={(e) => setEntry(e.target.value)}
+                      onChange={(e) => handleEntryChange(e.target.value)}
                       placeholder="—"
                     />
                   </label>
@@ -504,7 +560,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                       step="any"
                       className={inputCls}
                       value={stopLoss}
-                      onChange={(e) => setStopLoss(e.target.value)}
+                      onChange={(e) => handleStopLossChange(e.target.value)}
                       placeholder="—"
                     />
                   </label>
