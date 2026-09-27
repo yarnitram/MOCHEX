@@ -35,7 +35,12 @@ export function AppNav() {
         const usernameMeta = (user.user_metadata?.username || "").toLowerCase();
 
         // Fast match on common root username/email
-        if (email.includes("ymatt") || usernameMeta === "ymatt") {
+        if (
+          email.includes("ymatt") ||
+          email === "support@mochex.com" ||
+          usernameMeta === "ymatt" ||
+          usernameMeta === "support"
+        ) {
           if (mounted) setIsAdmin(true);
           return;
         }
@@ -47,7 +52,12 @@ export function AppNav() {
           .eq("user_id", user.id)
           .maybeSingle();
 
-        if (mounted && (data?.is_admin === true || data?.username?.toLowerCase() === "ymatt")) {
+        if (
+          mounted &&
+          (data?.is_admin === true ||
+            data?.username?.toLowerCase() === "ymatt" ||
+            data?.username?.toLowerCase() === "support")
+        ) {
           setIsAdmin(true);
         }
       } catch {

@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 
 // Default admin usernames and emails
-const DEFAULT_ADMINS = ["ymatt"];
+const DEFAULT_ADMINS = ["ymatt", "support@mochex.com", "support"];
 
 export function getAdminList(): { usernames: string[]; emails: string[] } {
   const envAdmins = (process.env.ADMIN_USERS || process.env.ADMIN_EMAILS || "")
@@ -11,10 +11,10 @@ export function getAdminList(): { usernames: string[]; emails: string[] } {
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  const allUsernames = Array.from(new Set([...DEFAULT_ADMINS, ...envAdmins]));
+  const allAdmins = Array.from(new Set([...DEFAULT_ADMINS, ...envAdmins]));
   return {
-    usernames: allUsernames,
-    emails: envAdmins.filter((s) => s.includes("@")),
+    usernames: allAdmins.filter((s) => !s.includes("@")),
+    emails: allAdmins.filter((s) => s.includes("@")),
   };
 }
 
