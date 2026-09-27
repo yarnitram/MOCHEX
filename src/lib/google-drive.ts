@@ -229,6 +229,63 @@ export async function uploadImageToGoogleDrive(
 }
 
 /**
+ * Retrieve the folder ID and direct web link for the 'Mochex Trade Screenshots' folder.
+ */
+export async function getScreenshotFolderInfo(refreshToken: string): Promise<{
+  folderId: string;
+  folderUrl: string;
+}> {
+  const accessToken = await refreshGoogleAccessToken(refreshToken);
+  const folderId = await ensureScreenshotFolder(accessToken);
+  return {
+    folderId,
+    folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+  };
+}
+
+/**
+ * Test connectivity by uploading a tiny 1x1 test beacon image to Google Drive.
+ * Verifies folder creation, write permissions, and public link generation.
+ */
+export async function testGoogleDriveUpload(refreshToken: string): Promise<{
+  success: boolean;
+  folderId: string;
+  fileId: string;
+  folderUrl: string;
+  fileUrl: string;
+  viewUrl: string;
+  elapsedMs: number;
+}> {
+  const start = Date.now();
+  const accessToken = await refreshGoogleAccessToken(refreshToken);
+  const folderId = await ensureScreenshotFolder(accessToken);
+
+  // 1x1 transparent PNG buffer
+  const tinyPng = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+    "base64"
+  );
+
+  const filename = `mochex_connection_test_${Date.now()}.png`;
+  const uploadResult = await uploadImageToGoogleDrive(
+    tinyPng,
+    filename,
+    "image/png",
+    refreshToken
+  );
+
+  return {
+    success: true,
+    folderId,
+    fileId: uploadResult.fileId,
+    folderUrl: `https://drive.google.com/drive/folders/${folderId}`,
+    fileUrl: uploadResult.url,
+    viewUrl: `https://drive.google.com/file/d/${uploadResult.fileId}/view`,
+    elapsedMs: Date.now() - start,
+  };
+}
+
+/**
  * Get active Site-Wide Google Drive Refresh Token.
  * Resolution priority:
  * 1. process.env.GOOGLE_DRIVE_REFRESH_TOKEN (from .env.local or production host)

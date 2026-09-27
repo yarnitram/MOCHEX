@@ -88,6 +88,16 @@ export function SettingsForm({ userEmail, initial }: Props) {
   const [gdriveToken, setGdriveToken] = useState<string | null>(null);
   const [copiedToken, setCopiedToken] = useState<boolean>(false);
   const [disconnectingGdrive, setDisconnectingGdrive] = useState(false);
+  const [testingDriveUpload, setTestingDriveUpload] = useState(false);
+  const [driveTestResult, setDriveTestResult] = useState<{
+    success: boolean;
+    folderUrl?: string;
+    fileUrl?: string;
+    viewUrl?: string;
+    elapsedMs?: number;
+    message?: string;
+  } | null>(null);
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string | null>(null);
 
   useEffect(() => {
     setAudioStateEnabled(isAudioEnabled());
@@ -101,6 +111,16 @@ export function SettingsForm({ userEmail, initial }: Props) {
           setGdriveConnected(true);
           if (data.email) setGdriveEmail(data.email);
           if (data.refreshToken) setGdriveToken(data.refreshToken);
+
+          // Retrieve destination folder link
+          fetch("/api/auth/google-drive/test")
+            .then((r) => r.json())
+            .then((info) => {
+              if (info.connected && info.folderUrl) {
+                setDriveFolderUrl(info.folderUrl);
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -126,6 +146,29 @@ export function SettingsForm({ userEmail, initial }: Props) {
     setTimeout(() => setCopiedToken(false), 2500);
   }
 
+  async function handleTestDriveUpload() {
+    setTestingDriveUpload(true);
+    setDriveTestResult(null);
+    try {
+      const res = await fetch("/api/auth/google-drive/test", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to upload test image");
+      }
+      setDriveTestResult(data);
+      if (data.folderUrl) setDriveFolderUrl(data.folderUrl);
+      setStatus("Google Drive upload test succeeded! Verified folder 'Mochex Trade Screenshots' ✓");
+    } catch (err: any) {
+      setDriveTestResult({
+        success: false,
+        message: err.message || "Failed to test Drive upload",
+      });
+      setError(err.message || "Drive upload test failed");
+    } finally {
+      setTestingDriveUpload(false);
+    }
+  }
+
   async function handleDisconnectGdrive() {
     if (!window.confirm("Disconnect site-wide Google Drive bucket? All future screenshots will fall back to Supabase storage.")) {
       return;
@@ -137,6 +180,8 @@ export function SettingsForm({ userEmail, initial }: Props) {
         setGdriveConnected(false);
         setGdriveEmail(null);
         setGdriveToken(null);
+        setDriveFolderUrl(null);
+        setDriveTestResult(null);
         setStatus("Site-wide Google Drive disconnected successfully ✓");
       } else {
         const d = await res.json().catch(() => ({}));
@@ -1219,6 +1264,94 @@ export function SettingsForm({ userEmail, initial }: Props) {
               )}
             </div>
           </div>
+
+          {/* 1-Click Verification & Folder Navigation */}
+          {gdriveConnected && (
+            <div className="rounded-lg border border-line bg-panel-soft/30 p-3.5 flex flex-col gap-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-col">
+                  <span className="text-xs font-semibold text-text flex items-center gap-1.5">
+                    <span>📁 Destination Folder:</span>
+                    <span className="font-mono text-accent font-bold">Mochex Trade Screenshots</span>
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    Located in your Google Drive root. Test connectivity and write permissions below.
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleTestDriveUpload}
+                    disabled={testingDriveUpload}
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-accent/15 hover:bg-accent/25 text-accent border border-accent/30 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <span>{testingDriveUpload ? "⏳" : "🧪"}</span>
+                    <span>{testingDriveUpload ? "Testing Upload..." : "Test Drive Upload"}</span>
+                  </button>
+
+                  <a
+                    href={driveFolderUrl || "https://drive.google.com/drive/search?q=Mochex%20Trade%20Screenshots"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-panel hover:bg-panel-soft text-text border border-line transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>📁</span>
+                    <span>Open in Google Drive</span>
+                    <span>↗</span>
+                  </a>
+                </div>
+              </div>
+
+              {driveTestResult && (
+                <div
+                  className={`p-3 rounded-lg border text-xs flex flex-col gap-1.5 animate-in fade-in duration-150 ${
+                    driveTestResult.success
+                      ? "bg-gain/10 border-gain/30 text-gain"
+                      : "bg-loss/10 border-loss/30 text-loss"
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-bold">
+                    <span>{driveTestResult.success ? "✓ Upload Test Passed!" : "✕ Upload Test Failed"}</span>
+                    {driveTestResult.elapsedMs && (
+                      <span className="font-mono text-[11px] font-normal text-muted">
+                        Latency: {driveTestResult.elapsedMs}ms
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-text">
+                    {driveTestResult.message || (driveTestResult.success ? "Folder verified and test file uploaded." : "Error uploading to Drive.")}
+                  </p>
+                  {driveTestResult.success && (
+                    <div className="flex items-center gap-3 pt-1">
+                      {driveTestResult.viewUrl && (
+                        <a
+                          href={driveTestResult.viewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-accent font-semibold underline flex items-center gap-1"
+                        >
+                          <span>View Uploaded File</span>
+                          <span>↗</span>
+                        </a>
+                      )}
+                      {driveTestResult.folderUrl && (
+                        <a
+                          href={driveTestResult.folderUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-accent font-semibold underline flex items-center gap-1"
+                        >
+                          <span>Open Destination Folder</span>
+                          <span>↗</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Vercel / Production Deployment Helper */}
           {gdriveConnected && gdriveToken && (

@@ -62,6 +62,9 @@ export function AdminDashboardClient({ currentUserId }: Props) {
   // Storage / Token State
   const [copiedToken, setCopiedToken] = useState(false);
   const [storageStatus, setStorageStatus] = useState<any>(null);
+  const [driveFolderUrl, setDriveFolderUrl] = useState<string | null>(null);
+  const [testingDriveUpload, setTestingDriveUpload] = useState(false);
+  const [driveTestResult, setDriveTestResult] = useState<any>(null);
 
   // Pinging MEXC Latency
   const [isPingingMexc, setIsPingingMexc] = useState(false);
@@ -102,8 +105,37 @@ export function AdminDashboardClient({ currentUserId }: Props) {
       const res = await fetch("/api/auth/google-drive/status");
       const data = await res.json();
       setStorageStatus(data);
+
+      if (data.siteWideActive) {
+        fetch("/api/auth/google-drive/test")
+          .then((r) => r.json())
+          .then((info) => {
+            if (info.connected && info.folderUrl) {
+              setDriveFolderUrl(info.folderUrl);
+            }
+          })
+          .catch(() => {});
+      }
     } catch (err) {
       console.error("Failed to load storage status:", err);
+    }
+  };
+
+  const handleTestDriveUpload = async () => {
+    setTestingDriveUpload(true);
+    setDriveTestResult(null);
+    try {
+      const res = await fetch("/api/auth/google-drive/test", { method: "POST" });
+      const data = await res.json();
+      setDriveTestResult(data);
+      if (data.folderUrl) setDriveFolderUrl(data.folderUrl);
+    } catch (err: any) {
+      setDriveTestResult({
+        success: false,
+        error: err.message || "Failed to test Drive upload",
+      });
+    } finally {
+      setTestingDriveUpload(false);
     }
   };
 
@@ -746,12 +778,12 @@ export function AdminDashboardClient({ currentUserId }: Props) {
                 Mochex Trade Screenshots
               </div>
               <a
-                href="https://drive.google.com"
+                href={driveFolderUrl || "https://drive.google.com/drive/search?q=Mochex%20Trade%20Screenshots"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[11px] text-accent hover:underline mt-1 flex items-center gap-1 font-mono"
               >
-                <span>Open Google Drive</span>
+                <span>Open in Google Drive</span>
                 <span>↗</span>
               </a>
             </div>
@@ -797,7 +829,27 @@ export function AdminDashboardClient({ currentUserId }: Props) {
             </div>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleTestDriveUpload}
+              disabled={testingDriveUpload || !storageStatus?.siteWideActive}
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-accent/15 hover:bg-accent/25 text-accent border border-accent/30 transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            >
+              <span>{testingDriveUpload ? "⏳" : "🧪"}</span>
+              <span>{testingDriveUpload ? "Uploading Test Image..." : "Test Drive Upload"}</span>
+            </button>
+
+            <a
+              href={driveFolderUrl || "https://drive.google.com/drive/search?q=Mochex%20Trade%20Screenshots"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 text-xs font-semibold rounded-lg bg-panel hover:bg-panel-soft text-text border border-line transition-colors flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>📁</span>
+              <span>Open &apos;Mochex Trade Screenshots&apos; Folder ↗</span>
+            </a>
+
             <Link
               href="/settings"
               className="accent-btn px-4 py-2 text-xs font-semibold rounded-lg"
@@ -805,6 +857,57 @@ export function AdminDashboardClient({ currentUserId }: Props) {
               Configure in Settings →
             </Link>
           </div>
+
+          {driveTestResult && (
+            <div
+              className={`p-4 rounded-xl border text-xs flex flex-col gap-2 animate-in fade-in duration-150 ${
+                driveTestResult.success
+                  ? "bg-gain/10 border-gain/30 text-gain"
+                  : "bg-loss/10 border-loss/30 text-loss"
+              }`}
+            >
+              <div className="flex items-center justify-between font-bold">
+                <span className="flex items-center gap-1.5 text-sm">
+                  <span>{driveTestResult.success ? "✓" : "✕"}</span>
+                  <span>{driveTestResult.success ? "Drive Connectivity Verified!" : "Drive Test Failed"}</span>
+                </span>
+                {driveTestResult.elapsedMs && (
+                  <span className="font-mono text-xs text-muted">
+                    Response: {driveTestResult.elapsedMs}ms
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-text">
+                {driveTestResult.message || driveTestResult.error || "Google Drive upload test completed."}
+              </p>
+              {driveTestResult.success && (
+                <div className="flex flex-wrap items-center gap-4 pt-1 font-mono text-[11px]">
+                  {driveTestResult.viewUrl && (
+                    <a
+                      href={driveTestResult.viewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent underline hover:text-accent/80 flex items-center gap-1"
+                    >
+                      <span>View Test Image</span>
+                      <span>↗</span>
+                    </a>
+                  )}
+                  {driveTestResult.folderUrl && (
+                    <a
+                      href={driveTestResult.folderUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-accent underline hover:text-accent/80 flex items-center gap-1"
+                    >
+                      <span>Open Destination Folder</span>
+                      <span>↗</span>
+                    </a>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
