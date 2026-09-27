@@ -7,8 +7,14 @@ export async function GET() {
   const configured = isGoogleDriveConfigured();
   const siteWide = await getSiteWideGoogleDriveToken(supabase);
 
+  const rawClientId = process.env.GOOGLE_CLIENT_ID || "";
+  const clientIdPreview = rawClientId
+    ? `${rawClientId.slice(0, 15)}...${rawClientId.slice(-25)} (length: ${rawClientId.length})`
+    : null;
+
   return NextResponse.json({
     configured,
+    clientIdPreview,
     siteWideActive: !!siteWide.refreshToken,
     email: siteWide.email,
     isEnv: siteWide.isEnv,
