@@ -24,6 +24,7 @@ const plexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://mochex.com"),
   title: "MOCHEX — Crypto Trading Setup Journal",
   description:
     "A single-user trading journal to log trades, review analytics, track risk, and export history.",
