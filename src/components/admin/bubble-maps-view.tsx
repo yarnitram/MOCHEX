@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as d3 from "d3-force";
+import type { AdminTrackedWallet, AdminTrackedToken } from "@/lib/types";
 
 interface HolderNode extends d3.SimulationNodeDatum {
   id: string;
@@ -83,6 +84,7 @@ export function BubbleMapsView() {
 
   const [currentToken, setCurrentToken] = useState(initialToken.toUpperCase());
   const [customInput, setCustomInput] = useState("");
+  const [showSuggestions, setShowSuggestions] = useState(false);
   const [data, setData] = useState<MapData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,12 +94,187 @@ export function BubbleMapsView() {
   const [highlightFilter, setHighlightFilter] = useState<"all" | "accumulating" | "dumping" | "clusters">("all");
   const [copied, setCopied] = useState(false);
 
+  // View Mode: Interactive Map vs Whale Data Table
+  const [viewMode, setViewMode] = useState<"map" | "table">("map");
+
+  // Table Sorting & Filters
+  const [tableSortField, setTableSortField] = useState<"netFlow" | "holdingPct" | "holdingUsd" | "sells">("netFlow");
+  const [tableSortDir, setTableSortDir] = useState<"asc" | "desc">("asc"); // asc puts largest negative sellers first
+  const [tableSearch, setTableSearch] = useState("");
+  const [tableClusterFilter, setTableClusterFilter] = useState<number | "all">("all");
+
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const simulationRef = useRef<d3.Simulation<HolderNode, TransferLink> | null>(null);
   const draggedNodeRef = useRef<HolderNode | null>(null);
   const hoveredNodeRef = useRef<HolderNode | null>(null);
+
+  // Watchlist & Tracking State
+  const [trackedWallets, setTrackedWallets] = useState<AdminTrackedWallet[]>([]);
+  const [trackedTokens, setTrackedTokens] = useState<AdminTrackedToken[]>([]);
+  const [showWatchlist, setShowWatchlist] = useState(false);
+  const [watchlistLoading, setWatchlistLoading] = useState(false);
+  const [scannerLoading, setScannerLoading] = useState(false);
+
+  const loadTrackedWalletsAndTokens = async () => {
+    try {
+      const [wRes, tRes] = await Promise.all([
+        fetch("/api/admin/tracked-wallets"),
+        fetch("/api/admin/tracked-tokens")
+      ]);
+      const wJson = await wRes.json();
+      const tJson = await tRes.json();
+      
+      if (wJson.success) setTrackedWallets(wJson.data);
+      if (tJson.success) setTrackedTokens(tJson.data);
+    } catch (err) {
+      console.error("Failed to load tracked data:", err);
+    }
+  };
+
+  useEffect(() => {
+    loadTrackedWalletsAndTokens();
+  }, []);
+
+  const toggleTrackWallet = async (walletId: string, label: string) => {
+    const existing = trackedWallets.find((w) => w.wallet_address === walletId);
+    setWatchlistLoading(true);
+    try {
+      if (existing) {
+        await fetch(`/api/admin/tracked-wallets?id=${existing.id}`, { method: "DELETE" });
+        setTrackedWallets((prev) => prev.filter((w) => w.id !== existing.id));
+      } else {
+        const res = await fetch("/api/admin/tracked-wallets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ wallet_address: walletId, label }),
+        });
+        const json = await res.json();
+        if (json.success) setTrackedWallets((prev) => [json.data, ...prev]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setWatchlistLoading(false);
+    }
+  };
+
+  const toggleTrackToken = async (symbol: string) => {
+    const existing = trackedTokens.find((t) => t.symbol === symbol);
+    setWatchlistLoading(true);
+    try {
+      if (existing) {
+        await fetch(`/api/admin/tracked-tokens?id=${existing.id}`, { method: "DELETE" });
+        setTrackedTokens((prev) => prev.filter((t) => t.id !== existing.id));
+      } else {
+        const res = await fetch("/api/admin/tracked-tokens", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ symbol }),
+        });
+        const json = await res.json();
+        if (json.success) setTrackedTokens((prev) => [json.data, ...prev]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setWatchlistLoading(false);
+    }
+  };
+
+  const runWhaleScanner = async () => {
+    setScannerLoading(true);
+    try {
+      const res = await fetch("/api/admin/whale-scanner", { method: "POST" });
+      const json = await res.json();
+      if (json.success) {
+        alert(json.message); // Simple alert for now, could use a toast
+      } else {
+        alert("Scanner failed: " + json.error);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setScannerLoading(false);
+    }
+  };
+
+  // Computed Whale Flow & Outflow Metrics
+  const whaleStats = useMemo(() => {
+    if (!data) return { netFlowTokens: 0, netFlowUsd: 0, topDumper: null, topBuyer: null, totalDumpingTokens: 0 };
+    const nonPool = data.nodes.filter((n) => n.type !== "pool");
+    const netFlowTokens = nonPool.reduce((acc, n) => acc + n.whaleStatus.netFlow24h, 0);
+    const netFlowUsd = Math.round(netFlowTokens * data.token.price);
+
+    const dumpers = nonPool.filter((n) => n.whaleStatus.netFlow24h < 0);
+    const totalDumpingTokens = Math.abs(dumpers.reduce((acc, n) => acc + n.whaleStatus.netFlow24h, 0));
+
+    const sortedByFlow = [...nonPool].sort(
+      (a, b) => a.whaleStatus.netFlow24h - b.whaleStatus.netFlow24h
+    );
+    const topDumper = sortedByFlow.length > 0 && sortedByFlow[0].whaleStatus.netFlow24h < 0 ? sortedByFlow[0] : null;
+    const topBuyer =
+      sortedByFlow.length > 0 && sortedByFlow[sortedByFlow.length - 1].whaleStatus.netFlow24h > 0
+        ? sortedByFlow[sortedByFlow.length - 1]
+        : null;
+
+    return { netFlowTokens, netFlowUsd, topDumper, topBuyer, totalDumpingTokens };
+  }, [data]);
+
+  // Filtered & Sorted Nodes for the Table View
+  const tableRows = useMemo(() => {
+    if (!data) return [];
+    let list = data.nodes.filter((n) => n.type !== "pool");
+
+    if (highlightFilter === "accumulating") {
+      list = list.filter((n) => n.whaleStatus.action === "accumulating");
+    } else if (highlightFilter === "dumping") {
+      list = list.filter((n) => n.whaleStatus.action === "dumping");
+    } else if (highlightFilter === "clusters") {
+      list = list.filter((n) => n.clusterId > 0);
+    }
+
+    if (tableClusterFilter !== "all") {
+      list = list.filter((n) => n.clusterId === tableClusterFilter);
+    }
+
+    if (tableSearch.trim()) {
+      const q = tableSearch.toLowerCase();
+      list = list.filter(
+        (n) =>
+          n.id.toLowerCase().includes(q) ||
+          n.label.toLowerCase().includes(q) ||
+          n.whaleStatus.lastAction.toLowerCase().includes(q)
+      );
+    }
+
+    list = [...list].sort((a, b) => {
+      let diff = 0;
+      if (tableSortField === "netFlow") {
+        diff = a.whaleStatus.netFlow24h - b.whaleStatus.netFlow24h;
+      } else if (tableSortField === "holdingPct") {
+        diff = a.holdingPct - b.holdingPct;
+      } else if (tableSortField === "holdingUsd") {
+        diff = a.holdingUsd - b.holdingUsd;
+      } else if (tableSortField === "sells") {
+        diff = a.whaleStatus.totalSells - b.whaleStatus.totalSells;
+      }
+      return tableSortDir === "asc" ? diff : -diff;
+    });
+
+    return list;
+  }, [data, highlightFilter, tableClusterFilter, tableSearch, tableSortField, tableSortDir]);
+
+  const handleSortToggle = (field: "netFlow" | "holdingPct" | "holdingUsd" | "sells") => {
+    if (tableSortField === field) {
+      setTableSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setTableSortField(field);
+      // For netFlow, default asc so dumpers (negative) show first. For others, default desc.
+      setTableSortDir(field === "netFlow" ? "asc" : "desc");
+    }
+  };
 
   // Fetch token graph data
   const loadTokenData = async (tokenSymbol: string) => {
@@ -446,7 +623,20 @@ export function BubbleMapsView() {
     if (!customInput.trim()) return;
     setCurrentToken(customInput.trim().toUpperCase());
     setCustomInput("");
+    setShowSuggestions(false);
   };
+
+  const handleSuggestionClick = (sym: string) => {
+    setCurrentToken(sym);
+    setCustomInput("");
+    setShowSuggestions(false);
+  };
+
+  const HOT_TOKENS = ["POPCAT", "GOAT", "MOODENG", "PNUT", "CHILLGUY", "SPX", "NEIRO"];
+  const allSuggestions = Array.from(new Set([...HOT_TOKENS, ...trackedTokens.map((t) => t.symbol)]));
+  const filteredSuggestions = allSuggestions.filter((sym) =>
+    sym.toLowerCase().includes(customInput.toLowerCase())
+  );
 
   return (
     <div className="flex flex-col gap-4 w-full">
@@ -476,6 +666,14 @@ export function BubbleMapsView() {
 
         {/* Global Links */}
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowWatchlist(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 transition-colors"
+          >
+            <span>⭐</span>
+            <span>Watchlist ({trackedWallets.length}W, {trackedTokens.length}T)</span>
+          </button>
           <Link
             href="/admin/bubbles"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-panel-soft hover:bg-panel-soft/80 text-text border border-line transition-colors"
@@ -499,7 +697,7 @@ export function BubbleMapsView() {
           <span className="text-[11px] font-semibold text-muted shrink-0 mr-1">
             Hot Tokens:
           </span>
-          {["POPCAT", "GOAT", "MOODENG", "PNUT", "CHILLGUY", "SPX", "NEIRO"].map(
+          {HOT_TOKENS.map(
             (sym) => (
               <button
                 key={sym}
@@ -520,20 +718,55 @@ export function BubbleMapsView() {
         {/* Custom Contract / Symbol Search */}
         <form
           onSubmit={handleSearchSubmit}
-          className="flex items-center gap-2 flex-1 sm:flex-initial min-w-[240px]"
+          className="flex items-center gap-2 flex-1 sm:flex-initial min-w-[240px] relative"
         >
-          <input
-            type="text"
-            placeholder="Search coin or contract..."
-            value={customInput}
-            onChange={(e) => setCustomInput(e.target.value)}
-            className="w-full bg-panel-soft border border-line rounded-xl px-3 py-1.5 text-xs text-text placeholder:text-muted focus:outline-none focus:border-purple-500"
-          />
+          <div className="relative flex-1">
+            <input
+              type="text"
+              placeholder="Search coin or contract..."
+              value={customInput}
+              onChange={(e) => {
+                setCustomInput(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+              className="w-full bg-panel-soft border border-line rounded-xl px-3 py-1.5 text-xs text-text placeholder:text-muted focus:outline-none focus:border-purple-500"
+            />
+            {showSuggestions && customInput.trim() && filteredSuggestions.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-1 bg-panel border border-line rounded-xl shadow-lg overflow-hidden z-50">
+                {filteredSuggestions.map((sym) => (
+                  <button
+                    key={sym}
+                    type="button"
+                    onClick={() => handleSuggestionClick(sym)}
+                    className="w-full text-left px-3 py-2 text-xs text-text hover:bg-panel-soft transition-colors cursor-pointer"
+                  >
+                    ${sym}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <button
             type="submit"
             className="px-3 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold shrink-0 cursor-pointer transition-colors"
           >
             Scan Map
+          </button>
+          
+          {/* Token Tracking Toggle */}
+          <button
+            type="button"
+            disabled={watchlistLoading}
+            onClick={() => toggleTrackToken(currentToken)}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition-colors disabled:opacity-50 flex items-center gap-1 ${
+              trackedTokens.some((t) => t.symbol === currentToken)
+                ? "bg-amber-500/20 text-amber-500 border border-amber-500/40"
+                : "bg-panel border border-line text-muted hover:text-text hover:bg-panel-soft"
+            }`}
+          >
+            ⭐ {trackedTokens.some((t) => t.symbol === currentToken) ? "Watching Token" : "Watch Token"}
           </button>
         </form>
       </div>
@@ -617,12 +850,99 @@ export function BubbleMapsView() {
         </div>
       )}
 
-      {/* Main Graph & Inspector Grid */}
+      {/* View Mode Switcher & Whale Sell Alert Toolbar */}
+      {data && (
+        <div className="bg-panel border border-line rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-muted">View Mode:</span>
+            <div className="flex items-center bg-panel-soft border border-line rounded-xl p-1 gap-1">
+              <button
+                type="button"
+                onClick={() => setViewMode("map")}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === "map"
+                    ? "bg-purple-600 text-white shadow-xs"
+                    : "text-muted hover:text-text"
+                }`}
+              >
+                <span>🕸️</span>
+                <span>Network Graph</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("table")}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  viewMode === "table"
+                    ? "bg-purple-600 text-white shadow-xs"
+                    : "text-muted hover:text-text"
+                }`}
+              >
+                <span>📊</span>
+                <span>Whale Activity Table</span>
+                {data.metrics.dumpingWhales > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] font-mono font-bold bg-loss/30 text-loss">
+                    {data.metrics.dumpingWhales} dumping
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Real-time Whale Outflow / Inflow Summary */}
+          <div className="flex items-center gap-2 text-xs">
+            {whaleStats.netFlowUsd < 0 ? (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-loss/15 border border-loss/30 text-loss font-semibold">
+                <span className="animate-pulse">🔴</span>
+                <span>
+                  Net Whale Outflow:{" "}
+                  <b className="font-mono">${Math.abs(whaleStats.netFlowUsd).toLocaleString()}</b> in 24h
+                </span>
+                {whaleStats.topDumper && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedNode(whaleStats.topDumper);
+                      setViewMode("table");
+                    }}
+                    className="underline text-[11px] text-loss hover:text-white cursor-pointer ml-1"
+                  >
+                    View Top Seller ({whaleStats.topDumper.holdingPct}%)
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gain/15 border border-gain/30 text-gain font-semibold">
+                <span>🟢</span>
+                <span>
+                  Net Whale Inflow:{" "}
+                  <b className="font-mono">+${whaleStats.netFlowUsd.toLocaleString()}</b> in 24h
+                </span>
+                {whaleStats.topBuyer && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedNode(whaleStats.topBuyer);
+                      setViewMode("table");
+                    }}
+                    className="underline text-[11px] text-gain hover:text-white cursor-pointer ml-1"
+                  >
+                    View Top Buyer ({whaleStats.topBuyer.holdingPct}%)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Grid: Map / Table + Side Inspector */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Interactive Force Graph Viewport */}
+        {/* 1. Interactive Force Graph Viewport */}
         <div
           ref={containerRef}
-          className="lg:col-span-2 relative h-[620px] sm:h-[680px] bg-panel-soft/40 border border-line rounded-3xl overflow-hidden shadow-inner flex items-center justify-center select-none"
+          className={`${
+            viewMode === "map" ? "lg:col-span-2 block" : "hidden"
+          } relative h-[620px] sm:h-[680px] bg-panel-soft/40 border border-line rounded-3xl overflow-hidden shadow-inner flex items-center justify-center select-none`}
         >
           {loading && (
             <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-xs gap-3">
@@ -667,6 +987,284 @@ export function BubbleMapsView() {
 
           <div className="absolute bottom-3 left-3 pointer-events-none text-[10px] text-muted/70 bg-panel/70 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-line/40">
             💡 Click any wallet to view live DEX trades · Drag nodes to reposition
+          </div>
+        </div>
+
+        {/* 2. Whale Selling & Activity Data Table */}
+        <div
+          className={`${
+            viewMode === "table" ? "lg:col-span-2 flex" : "hidden"
+          } flex-col bg-panel border border-line rounded-3xl p-4 sm:p-5 shadow-sm min-h-[620px] max-h-[680px] gap-3`}
+        >
+          {/* Table Controls Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-line pb-3">
+            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+              <input
+                type="text"
+                placeholder="Search wallet, label, or action..."
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                className="w-full bg-panel-soft border border-line rounded-xl px-3 py-1.5 text-xs text-text placeholder:text-muted focus:outline-none focus:border-purple-500"
+              />
+              {tableSearch && (
+                <button
+                  type="button"
+                  onClick={() => setTableSearch("")}
+                  className="text-xs text-muted hover:text-text px-1"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              {/* Cluster Filter */}
+              <select
+                value={tableClusterFilter}
+                onChange={(e) =>
+                  setTableClusterFilter(e.target.value === "all" ? "all" : Number(e.target.value))
+                }
+                className="bg-panel-soft border border-line rounded-xl px-2.5 py-1.5 text-xs text-text font-medium focus:outline-none focus:border-purple-500"
+              >
+                <option value="all">All Clusters</option>
+                <option value={1}>Cluster 1 (Dev & Splits)</option>
+                <option value={2}>Cluster 2 (Sniper Syndicate)</option>
+                <option value={3}>Cluster 3 (Insider Ring)</option>
+                <option value={0}>Independent Wallets</option>
+              </select>
+
+              {/* Quick Sort Shortcuts */}
+              <button
+                type="button"
+                onClick={() => {
+                  setTableSortField("netFlow");
+                  setTableSortDir("asc");
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                  tableSortField === "netFlow" && tableSortDir === "asc"
+                    ? "bg-loss/20 text-loss border border-loss/40"
+                    : "bg-panel-soft text-muted hover:text-text border border-line"
+                }`}
+                title="Sort by largest negative net sellers first"
+              >
+                🔴 Sellers First
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setTableSortField("netFlow");
+                  setTableSortDir("desc");
+                }}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                  tableSortField === "netFlow" && tableSortDir === "desc"
+                    ? "bg-gain/20 text-gain border border-gain/40"
+                    : "bg-panel-soft text-muted hover:text-text border border-line"
+                }`}
+                title="Sort by largest accumulators first"
+              >
+                🟢 Buyers First
+              </button>
+            </div>
+          </div>
+
+          {/* Whale Table Content */}
+          <div className="overflow-x-auto flex-1 overflow-y-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 bg-panel border-b border-line text-[11px] font-semibold text-muted select-none">
+                <tr>
+                  <th className="py-2.5 px-3">#</th>
+                  <th className="py-2.5 px-3">Wallet / Holder</th>
+                  <th className="py-2.5 px-2">Cluster</th>
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:text-text"
+                    onClick={() => handleSortToggle("holdingPct")}
+                  >
+                    Supply % {tableSortField === "holdingPct" ? (tableSortDir === "desc" ? "↓" : "↑") : "↕"}
+                  </th>
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:text-text"
+                    onClick={() => handleSortToggle("holdingUsd")}
+                  >
+                    Value {tableSortField === "holdingUsd" ? (tableSortDir === "desc" ? "↓" : "↑") : "↕"}
+                  </th>
+                  <th
+                    className="py-2.5 px-3 cursor-pointer hover:text-text"
+                    onClick={() => handleSortToggle("netFlow")}
+                  >
+                    24h Net Flow {tableSortField === "netFlow" ? (tableSortDir === "asc" ? "↓ (Dumping)" : "↑ (Buying)") : "↕"}
+                  </th>
+                  <th className="py-2.5 px-3">Status</th>
+                  <th className="py-2.5 px-3">Recent DEX Action</th>
+                  <th className="py-2.5 px-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/60 font-mono">
+                {tableRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-muted italic font-sans">
+                      No whale wallets match the active search or filters.
+                    </td>
+                  </tr>
+                ) : (
+                  tableRows.map((node, index) => {
+                    const isSelected = selectedNode?.id === node.id;
+                    const clusterColor = CLUSTER_COLORS[node.clusterId % CLUSTER_COLORS.length];
+                    const isDumping = node.whaleStatus.action === "dumping";
+                    const isAccumulating = node.whaleStatus.action === "accumulating";
+
+                    return (
+                      <tr
+                        key={node.id}
+                        onClick={() => setSelectedNode(node)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected
+                            ? "bg-purple-500/15 border-l-2 border-l-purple-500"
+                            : "hover:bg-panel-soft/60"
+                        }`}
+                      >
+                        {/* Rank */}
+                        <td className="py-2.5 px-3 text-muted text-[11px] font-sans">
+                          {index + 1}
+                        </td>
+
+                        {/* Wallet Label & ID */}
+                        <td className="py-2.5 px-3 font-sans">
+                          <div className="flex flex-col">
+                            <span className="font-bold text-text text-xs flex items-center gap-1.5">
+                              {node.label}
+                            </span>
+                            <span className="font-mono text-[10px] text-muted truncate max-w-[140px]">
+                              {node.id}
+                            </span>
+                          </div>
+                        </td>
+
+                        {/* Cluster Tag */}
+                        <td className="py-2.5 px-2 font-sans">
+                          {node.clusterId > 0 ? (
+                            <span
+                              className="px-2 py-0.5 rounded-md text-[10px] font-bold"
+                              style={{
+                                backgroundColor: `${clusterColor}20`,
+                                color: clusterColor,
+                                border: `1px solid ${clusterColor}40`,
+                              }}
+                            >
+                              Cluster #{node.clusterId}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-muted font-sans">Independent</span>
+                          )}
+                        </td>
+
+                        {/* Supply Share */}
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-text">{node.holdingPct}%</span>
+                            <div className="w-12 h-1.5 bg-panel-soft rounded-full overflow-hidden hidden sm:block">
+                              <div
+                                className="h-full bg-purple-500 rounded-full"
+                                style={{ width: `${Math.min(100, node.holdingPct * 10)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Value USD */}
+                        <td className="py-2.5 px-3 text-text font-bold">
+                          ${(node.holdingUsd / 1e3).toFixed(1)}k
+                        </td>
+
+                        {/* 24h Net Flow */}
+                        <td className="py-2.5 px-3">
+                          {node.whaleStatus.netFlow24h < 0 ? (
+                            <div className="flex flex-col text-loss">
+                              <span className="font-black text-xs">
+                                -${Math.abs(Math.round(node.whaleStatus.netFlow24h * (data?.token.price || 1))).toLocaleString()}
+                              </span>
+                              <span className="text-[9px] opacity-80">
+                                {node.whaleStatus.netFlow24h.toLocaleString()} tokens
+                              </span>
+                            </div>
+                          ) : node.whaleStatus.netFlow24h > 0 ? (
+                            <div className="flex flex-col text-gain">
+                              <span className="font-black text-xs">
+                                +${Math.round(node.whaleStatus.netFlow24h * (data?.token.price || 1)).toLocaleString()}
+                              </span>
+                              <span className="text-[9px] opacity-80">
+                                +{node.whaleStatus.netFlow24h.toLocaleString()} tokens
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-muted text-[11px]">$0 (Holding)</span>
+                          )}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-2.5 px-3 font-sans">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              isDumping
+                                ? "bg-loss/20 text-loss border border-loss/30"
+                                : isAccumulating
+                                ? "bg-gain/20 text-gain border border-gain/30"
+                                : "bg-panel-soft text-muted border border-line"
+                            }`}
+                          >
+                            {node.whaleStatus.action}
+                          </span>
+                        </td>
+
+                        {/* Last Action Snippet */}
+                        <td className="py-2.5 px-3 font-sans text-muted text-[11px] max-w-[180px] truncate">
+                          {node.whaleStatus.lastAction}
+                        </td>
+
+                        {/* Action CTA */}
+                        <td className="py-2.5 px-3 text-right font-sans">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedNode(node);
+                            }}
+                            className={`px-2 py-1 rounded-lg text-[10px] font-bold cursor-pointer transition-colors ${
+                              isSelected
+                                ? "bg-purple-600 text-white"
+                                : "bg-panel-soft hover:bg-panel text-text border border-line"
+                            }`}
+                          >
+                            {isSelected ? "Inspecting" : "Inspect →"}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Table Footer Info */}
+          <div className="pt-2 border-t border-line flex flex-wrap items-center justify-between text-[11px] text-muted">
+            <span>
+              Showing <b className="text-text">{tableRows.length}</b> whale wallets sampled on-chain.
+            </span>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-loss" />
+                <span>
+                  <b>{tableRows.filter((r) => r.whaleStatus.action === "dumping").length}</b> Selling
+                </span>
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-gain" />
+                <span>
+                  <b>{tableRows.filter((r) => r.whaleStatus.action === "accumulating").length}</b> Buying
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 
@@ -801,6 +1399,20 @@ export function BubbleMapsView() {
 
               {/* Quick Actions */}
               <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  disabled={watchlistLoading}
+                  onClick={() => toggleTrackWallet(selectedNode.id, selectedNode.label)}
+                  className={`w-full py-2 rounded-xl text-center font-bold text-xs transition-colors disabled:opacity-50 ${
+                    trackedWallets.some((w) => w.wallet_address === selectedNode.id)
+                      ? "bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 border border-amber-500/40"
+                      : "bg-panel-soft hover:bg-panel-soft/80 text-text border border-line"
+                  }`}
+                >
+                  {trackedWallets.some((w) => w.wallet_address === selectedNode.id)
+                    ? "⭐ Untrack Wallet"
+                    : "⭐ Track Wallet"}
+                </button>
                 <Link
                   href={`/watchlist`}
                   className="w-full py-2 rounded-xl text-center font-bold text-xs bg-accent hover:bg-accent/90 text-accent-text transition-colors"
@@ -822,6 +1434,121 @@ export function BubbleMapsView() {
           )}
         </div>
       </div>
+      {/* Tracked Whales Watchlist Modal */}
+      {showWatchlist && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-panel border border-line rounded-3xl w-full max-w-2xl shadow-xl flex flex-col overflow-hidden max-h-[85vh]">
+            <div className="p-5 border-b border-line flex items-center justify-between bg-panel-soft/50">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">⭐</span>
+                <div>
+                  <h2 className="text-lg font-bold text-text">Whale Watchlist & Alerts</h2>
+                  <p className="text-xs text-muted">Tracking {trackedWallets.length} wallets and {trackedTokens.length} tokens.</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={runWhaleScanner}
+                  disabled={scannerLoading}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-purple-600 hover:bg-purple-500 text-white transition-colors disabled:opacity-50"
+                >
+                  {scannerLoading ? "Scanning..." : "Run Scanner 🔍"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowWatchlist(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-panel hover:bg-panel-soft text-muted hover:text-text border border-line transition-colors"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-6">
+              
+              {/* Tracked Tokens Section */}
+              <div>
+                <h3 className="text-sm font-bold text-text mb-3 flex items-center gap-2">
+                  <span>🪙 Tracked Tokens</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-panel-soft border border-line text-[10px] text-muted">{trackedTokens.length}</span>
+                </h3>
+                {trackedTokens.length === 0 ? (
+                  <p className="text-xs text-muted italic p-4 bg-panel-soft/30 border border-line rounded-xl text-center">
+                    No tokens tracked. Click "Watch Token" next to the search bar.
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {trackedTokens.map((token) => (
+                      <div key={token.id} className="bg-panel-soft/40 border border-line rounded-xl p-3 flex items-center justify-between group">
+                        <span className="font-bold text-xs text-text">${token.symbol}</span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            title={token.alert_enabled ? "Alerts On (Testing Phase)" : "Alerts Off"}
+                            className={`text-xs ${token.alert_enabled ? 'text-amber-500' : 'text-muted'}`}
+                          >
+                            🔔
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleTrackToken(token.symbol)}
+                            className="text-muted hover:text-loss opacity-0 group-hover:opacity-100 transition-opacity text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Tracked Wallets Section */}
+              <div>
+                <h3 className="text-sm font-bold text-text mb-3 flex items-center gap-2">
+                  <span>🐋 Tracked Whales</span>
+                  <span className="px-1.5 py-0.5 rounded-md bg-panel-soft border border-line text-[10px] text-muted">{trackedWallets.length}</span>
+                </h3>
+                {trackedWallets.length === 0 ? (
+                  <p className="text-xs text-muted italic p-4 bg-panel-soft/30 border border-line rounded-xl text-center">
+                    No whales tracked. Click "Track Wallet" inside the BubbleMaps inspector.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {trackedWallets.map((wallet) => (
+                      <div
+                        key={wallet.id}
+                        className="bg-panel-soft/40 border border-line rounded-xl p-3 flex items-center justify-between group"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 mb-0.5">
+                            <h3 className="font-bold text-xs text-text truncate">{wallet.label || "Unknown Whale"}</h3>
+                            {wallet.alert_enabled && (
+                              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+                                🔔 Alerts On
+                              </span>
+                            )}
+                          </div>
+                          <p className="font-mono text-[10px] text-muted truncate">
+                            {wallet.wallet_address}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleTrackWallet(wallet.wallet_address, wallet.label || "")}
+                          className="px-2 py-1 rounded-lg text-[10px] font-semibold text-loss hover:bg-loss/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+                        >
+                          Untrack
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

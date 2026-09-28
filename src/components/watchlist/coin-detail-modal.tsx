@@ -8,7 +8,8 @@ import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-upload
 
 interface Props {
   symbol: string;
-  item: WatchlistItem | null;
+  item: any | null;
+  isReadOnly?: boolean;
   onClose: () => void;
   onSaved?: () => void;
 }
@@ -56,7 +57,7 @@ const ORDER_TYPE_OPTIONS: { value: OrderType; label: string }[] = [
   { value: "market", label: "Market" },
 ];
 
-export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
+export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: Props) {
   const [ticker, setTicker] = useState<Ticker | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -411,8 +412,9 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() => setPosition("long")}
-                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all ${isReadOnly ? "opacity-70 cursor-not-allowed" : "cursor-pointer"} border ${
                       position === "long"
                         ? "bg-gain/20 text-gain border-gain shadow-sm"
                         : "bg-panel-soft/60 hover:bg-panel-soft text-muted border-line"
@@ -433,8 +435,9 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                   </button>
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() => setPosition("short")}
-                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer border ${
+                    className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all ${isReadOnly ? "opacity-70 cursor-not-allowed" : "cursor-pointer"} border ${
                       position === "short"
                         ? "bg-loss/20 text-loss border-loss shadow-sm"
                         : "bg-panel-soft/60 hover:bg-panel-soft text-muted border-line"
@@ -481,6 +484,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                     <input
                       type="number"
                       step="any"
+                      disabled={isReadOnly}
                       className={inputCls}
                       value={triggerPrice}
                       onChange={(e) => handleTriggerPriceChange(e.target.value)}
@@ -491,9 +495,10 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                   <label className="flex flex-col gap-1 text-xs text-muted">
                     <span>Alert Condition</span>
                     <select
+                      disabled={isReadOnly}
                       value={triggerDirection}
                       onChange={(e) => setTriggerDirection(e.target.value as "above" | "below")}
-                      className={`${inputCls} cursor-pointer`}
+                      className={`${inputCls} ${isReadOnly ? "" : "cursor-pointer"}`}
                     >
                       <option value="below">Price drops to or below (≤)</option>
                       <option value="above">Price rises to or above (≥)</option>
@@ -514,7 +519,8 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                 <label className="flex flex-col gap-1 text-xs text-muted">
                   <span>Order type</span>
                   <select
-                    className={`${inputCls} cursor-pointer`}
+                    disabled={isReadOnly}
+                    className={`${inputCls} ${isReadOnly ? "" : "cursor-pointer"}`}
                     value={orderType}
                     onChange={(e) =>
                       setOrderType(e.target.value as OrderType | "")
@@ -547,6 +553,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                     <input
                       type="number"
                       step="any"
+                      disabled={isReadOnly}
                       className={inputCls}
                       value={entry}
                       onChange={(e) => handleEntryChange(e.target.value)}
@@ -558,6 +565,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                     <input
                       type="number"
                       step="any"
+                      disabled={isReadOnly}
                       className={inputCls}
                       value={stopLoss}
                       onChange={(e) => handleStopLossChange(e.target.value)}
@@ -569,6 +577,7 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                     <input
                       type="number"
                       step="any"
+                      disabled={isReadOnly}
                       className={inputCls}
                       value={takeProfit}
                       onChange={(e) => setTakeProfit(e.target.value)}
@@ -598,10 +607,11 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                 </span>
                 <textarea
                   rows={2}
+                  disabled={isReadOnly}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. 4H bull flag breakout, tight invalidation below support..."
-                  className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none font-mono"
+                  className="w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all resize-none font-mono disabled:opacity-70 disabled:cursor-not-allowed"
                 />
               </label>
 
@@ -610,40 +620,43 @@ export function CoinDetailModal({ symbol, item, onClose, onSaved }: Props) {
                 urls={screenshotUrls}
                 onChange={setScreenshotUrls}
                 maxFiles={5}
+                disabled={isReadOnly}
                 entityId={`watchlist-${item?.id || symbol}`}
                 label="Chart Screenshots (1–5 images)"
-                helpText="Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."
+                helpText={isReadOnly ? "Attached screenshots" : "Paste (Ctrl+V) or upload up to 5 screenshots. Auto-compressed 85–95%."}
               />
 
               {savedMsg && (
                 <div className="text-xs text-gain font-medium">{savedMsg}</div>
               )}
 
-              <div className="flex justify-end gap-2 hairline-t pt-3">
-                {triggerPrice && (
+              {!isReadOnly && (
+                <div className="flex justify-end gap-2 hairline-t pt-3">
+                  {triggerPrice && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTriggerPrice("");
+                        setEntry("");
+                        setStopLoss("");
+                        setTakeProfit("");
+                        setNotes("");
+                        setScreenshotUrls([]);
+                      }}
+                      className="px-3 py-2 text-xs btn-ghost cursor-pointer"
+                    >
+                      Clear All
+                    </button>
+                  )}
                   <button
-                    type="button"
-                    onClick={() => {
-                      setTriggerPrice("");
-                      setEntry("");
-                      setStopLoss("");
-                      setTakeProfit("");
-                      setNotes("");
-                      setScreenshotUrls([]);
-                    }}
-                    className="px-3 py-2 text-xs btn-ghost cursor-pointer"
+                    type="submit"
+                    disabled={saving}
+                    className="px-4 py-2 text-sm accent-btn font-semibold cursor-pointer disabled:opacity-60"
                   >
-                    Clear All
+                    {saving ? "Saving…" : "Save Changes"}
                   </button>
-                )}
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className="px-4 py-2 text-sm accent-btn font-semibold cursor-pointer disabled:opacity-60"
-                >
-                  {saving ? "Saving…" : "Save Changes"}
-                </button>
-              </div>
+                </div>
+              )}
             </form>
           )}
         </div>

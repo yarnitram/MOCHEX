@@ -136,24 +136,66 @@ function generateDeterministicHolders(symbol: string): {
   links: TransferLink[];
 } {
   const upper = symbol.toUpperCase();
-  const baseProfile = TOKEN_PROFILES[upper] || {
-    name: `${upper} Token`,
-    symbol: upper,
-    chain: "Solana",
-    contract: `7x${upper.padEnd(6, "0")}kZE3KNkrHERKzAetSxbrWeniQfyJY4Jpump`,
-    price: 0.05,
+  
+  // Hash the input to use as a seed
+  let seed = 0;
+  for (let i = 0; i < upper.length; i++) {
+    seed = (seed << 5) - seed + upper.charCodeAt(i);
+    seed |= 0;
+  }
+  seed = Math.abs(seed);
+
+  // Check if it's a contract address
+  const isEthContract = upper.startsWith("0X") && upper.length > 40;
+  const isSolContract = !upper.startsWith("0X") && upper.length > 30;
+  const isContract = isEthContract || isSolContract;
+
+  let displaySymbol = upper;
+  let displayContract = `7x${upper.substring(0, 6)}...pump`;
+  let displayChain = seed % 2 === 0 ? "Solana" : "Ethereum";
+
+  if (isContract) {
+    const prefixes = ["DOGE", "CAT", "PEPE", "WIF", "MEME", "BONK", "INU", "FLOKI", "APE", "PUP", "SHIB"];
+    const suffixes = ["AI", "X", "INU", "MAX", "COIN", "PRO", "TRON", "DAO", "LITE"];
+    const useSuffix = seed % 3 === 0;
+    
+    if (useSuffix) {
+      displaySymbol = prefixes[seed % prefixes.length] + suffixes[(seed >> 2) % suffixes.length];
+    } else {
+      displaySymbol = prefixes[seed % prefixes.length];
+    }
+
+    displayContract = symbol; // Keep original casing for contract
+    displayChain = isEthContract ? "Ethereum" : "Solana";
+  } else if (!TOKEN_PROFILES[upper]) {
+    displayContract = `7x${upper.padEnd(6, "0")}...pump`;
+  }
+
+  const isFallback = !TOKEN_PROFILES[upper] || isContract;
+
+  const baseProfile = TOKEN_PROFILES[upper] && !isContract ? TOKEN_PROFILES[upper] : {
+    name: `${displaySymbol} Token`,
+    symbol: displaySymbol,
+    chain: displayChain,
+    contract: displayContract,
+    price: 0.01 + (seed % 100) / 50,
     totalSupply: 1000000000,
-    marketCap: 50000000,
-    riskScore: 45,
-    clusters: { devSplits: 3, insiderClusters: 2 },
+    marketCap: 50000000 + (seed % 50000000),
+    riskScore: 20 + (seed % 70),
+    clusters: { devSplits: (seed % 5) + 1, insiderClusters: (seed % 3) + 1 },
   };
 
-  const seed = upper.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0);
   const nodes: HolderNode[] = [];
   const links: TransferLink[] = [];
 
-  // 1. Raydium/Uniswap Liquidity Pool Node
-  const poolPct = 12.5;
+  const devSplits = baseProfile.clusters.devSplits;
+  const whaleCount = isFallback ? 15 + (seed % 25) : 22;
+  const poolPct = isFallback ? 5 + (seed % 15) + (seed % 10) / 10 : 12.5;
+  const mexcPct = isFallback ? 3 + (seed % 10) + (seed % 10) / 10 : 8.2;
+  const devPct = isFallback ? 2 + (seed % 8) + (seed % 10) / 10 : 4.8;
+  const hasMexc = isFallback ? seed % 3 !== 0 : true;
+
+  // 1. Liquidity Pool Node
   const poolTokens = Math.round(baseProfile.totalSupply * (poolPct / 100));
   nodes.push({
     id: `pool_${upper.toLowerCase()}`,
@@ -167,40 +209,41 @@ function generateDeterministicHolders(symbol: string): {
       action: "holding",
       netFlow24h: 0,
       lastAction: "Constant automated AMM liquidity rebalancing",
-      totalBuys: 2840,
-      totalSells: 2610,
+      totalBuys: 2000 + (seed % 1500),
+      totalSells: 1800 + (seed % 1500),
       recentTrades: [],
     },
   });
 
   // 2. CEX Exchange Hot Wallets (MEXC / Binance)
-  const mexcPct = 8.2;
-  const mexcTokens = Math.round(baseProfile.totalSupply * (mexcPct / 100));
-  nodes.push({
-    id: `cex_mexc_${upper.toLowerCase()}`,
-    label: "MEXC Exchange Hot Wallet 🏛️",
-    holdingPct: mexcPct,
-    holdingTokens: mexcTokens,
-    holdingUsd: Math.round(mexcTokens * baseProfile.price),
-    type: "cex",
-    clusterId: 0,
-    whaleStatus: {
-      action: "accumulating",
-      netFlow24h: Math.round(mexcTokens * 0.04),
-      lastAction: "CEX User Deposits (+1.2M tokens in last 4h)",
-      totalBuys: 1420,
-      totalSells: 980,
-      recentTrades: [
-        { type: "buy", amount: 250000, usd: Math.round(250000 * baseProfile.price), timeAgo: "12m ago", dex: "CEX Inflow" },
-        { type: "buy", amount: 180000, usd: Math.round(180000 * baseProfile.price), timeAgo: "44m ago", dex: "CEX Inflow" },
-      ],
-    },
-  });
+  if (hasMexc) {
+    const mexcTokens = Math.round(baseProfile.totalSupply * (mexcPct / 100));
+    const isAccumulating = seed % 2 === 0;
+    nodes.push({
+      id: `cex_mexc_${upper.toLowerCase()}`,
+      label: "MEXC Exchange Hot Wallet 🏛️",
+      holdingPct: mexcPct,
+      holdingTokens: mexcTokens,
+      holdingUsd: Math.round(mexcTokens * baseProfile.price),
+      type: "cex",
+      clusterId: 0,
+      whaleStatus: {
+        action: isAccumulating ? "accumulating" : "dumping",
+        netFlow24h: Math.round(mexcTokens * (isAccumulating ? 0.04 : -0.02)),
+        lastAction: isAccumulating ? `CEX User Deposits (+${Math.round(mexcTokens * 0.04).toLocaleString()} in last 4h)` : `CEX User Withdrawals`,
+        totalBuys: 1000 + (seed % 800),
+        totalSells: 900 + (seed % 800),
+        recentTrades: [
+          { type: isAccumulating ? "buy" : "sell", amount: 250000, usd: Math.round(250000 * baseProfile.price), timeAgo: "12m ago", dex: "CEX Flow" },
+        ],
+      },
+    });
+  }
 
   // 3. Deployer / Dev Wallet (Cluster 1)
   const devId = `dev_wallet_${upper.toLowerCase()}`;
-  const devPct = 4.8;
   const devTokens = Math.round(baseProfile.totalSupply * (devPct / 100));
+  const devAction = seed % 3 === 0 ? "holding" : "dumping";
   nodes.push({
     id: devId,
     label: "Deployer / Creator 👨‍💻",
@@ -210,22 +253,21 @@ function generateDeterministicHolders(symbol: string): {
     type: "dev",
     clusterId: 1,
     whaleStatus: {
-      action: "dumping",
-      netFlow24h: -Math.round(devTokens * 0.08),
-      lastAction: "Distributed 350,000 tokens to secondary wallets",
+      action: devAction,
+      netFlow24h: devAction === "dumping" ? -Math.round(devTokens * 0.08) : 0,
+      lastAction: devAction === "dumping" ? `Distributed tokens to secondary wallets` : "Holding Genesis Allocation",
       totalBuys: 2,
-      totalSells: 19,
-      recentTrades: [
-        { type: "sell", amount: 150000, usd: Math.round(150000 * baseProfile.price), timeAgo: "2h ago", dex: "Raydium" },
-        { type: "transfer", amount: 200000, usd: Math.round(200000 * baseProfile.price), timeAgo: "5h ago" },
-      ],
+      totalSells: devAction === "dumping" ? 12 + (seed % 10) : 0,
+      recentTrades: devAction === "dumping" ? [
+        { type: "sell", amount: 150000, usd: Math.round(150000 * baseProfile.price), timeAgo: "2h ago", dex: baseProfile.chain === "Solana" ? "Raydium" : "Uniswap" },
+      ] : [],
     },
   });
 
   // 4. Dev Cluster Offshoot Wallets (Cluster 1)
-  for (let i = 1; i <= baseProfile.clusters.devSplits; i++) {
+  for (let i = 1; i <= devSplits; i++) {
     const subId = `dev_split_${i}_${upper.toLowerCase()}`;
-    const pct = +(2.8 - i * 0.4).toFixed(2);
+    const pct = +( (devPct / devSplits) * (1 + ((seed + i) % 10) / 20) ).toFixed(2);
     const tokens = Math.round(baseProfile.totalSupply * (pct / 100));
     nodes.push({
       id: subId,
@@ -238,12 +280,11 @@ function generateDeterministicHolders(symbol: string): {
       whaleStatus: {
         action: i % 2 === 0 ? "dumping" : "holding",
         netFlow24h: i % 2 === 0 ? -Math.round(tokens * 0.05) : 0,
-        lastAction: i % 2 === 0 ? "Sold $12,400 via Jupiter DEX" : "Inactive (Holding)",
+        lastAction: i % 2 === 0 ? `Sold $${Math.round(tokens * 0.05 * baseProfile.price).toLocaleString()} via DEX` : "Inactive (Holding)",
         totalBuys: 1,
-        totalSells: i % 2 === 0 ? 8 : 0,
-        recentTrades:
-          i % 2 === 0
-            ? [{ type: "sell", amount: 80000, usd: Math.round(80000 * baseProfile.price), timeAgo: "1h ago", dex: "Jupiter" }]
+        totalSells: i % 2 === 0 ? 3 + (seed % 5) : 0,
+        recentTrades: i % 2 === 0
+            ? [{ type: "sell", amount: Math.round(tokens * 0.05), usd: Math.round(tokens * 0.05 * baseProfile.price), timeAgo: `${i}h ago`, dex: "Jupiter" }]
             : [],
       },
     });
@@ -253,21 +294,21 @@ function generateDeterministicHolders(symbol: string): {
       target: subId,
       amount: tokens,
       pct,
-      timeAgo: `${i * 3 + 2}d ago`,
+      timeAgo: `${i * (seed % 5) + 1}d ago`,
       type: "dev_split",
     });
   }
 
-  // 5. Independent Whales & Sniper Rings (Clusters 2 & 3 & Unconnected)
-  const whaleCount = 22;
+  // 5. Independent Whales & Sniper Rings
   for (let i = 1; i <= whaleCount; i++) {
-    const isCluster2 = i >= 4 && i <= 7;
-    const isCluster3 = i >= 11 && i <= 13;
+    const isCluster2 = i >= 4 && i <= 3 + baseProfile.clusters.insiderClusters * 2;
+    const isCluster3 = i >= 11 && i <= 10 + baseProfile.clusters.insiderClusters * 2;
     const clusterId = isCluster2 ? 2 : isCluster3 ? 3 : 0;
     
-    // Deterministic holding percentage
-    const pct = +(3.2 / (1 + i * 0.18)).toFixed(2);
+    const baseWhalePct = isFallback ? 1.0 + (seed % 50) / 20 : 3.2;
+    const pct = +(baseWhalePct / (1 + i * 0.15)).toFixed(2);
     const tokens = Math.round(baseProfile.totalSupply * (pct / 100));
+    
     const isNetBuyer = (seed + i * 7) % 3 === 0;
     const isNetSeller = (seed + i * 11) % 3 === 1;
     const action = isNetBuyer ? "accumulating" : isNetSeller ? "dumping" : "holding";
@@ -281,6 +322,9 @@ function generateDeterministicHolders(symbol: string): {
       ? `Mega Whale #${i} 🟢 (Buying)` 
       : `Top Holder #${i} 🐳`;
 
+    const chainNative = baseProfile.chain === "Solana" ? "SOL" : "ETH";
+    const dex = baseProfile.chain === "Solana" ? "Raydium" : "Uniswap";
+
     nodes.push({
       id: walletId,
       label,
@@ -291,32 +335,27 @@ function generateDeterministicHolders(symbol: string): {
       clusterId,
       whaleStatus: {
         action,
-        netFlow24h: isNetBuyer
-          ? Math.round(tokens * 0.12)
-          : isNetSeller
-          ? -Math.round(tokens * 0.15)
-          : 0,
+        netFlow24h: isNetBuyer ? Math.round(tokens * 0.12) : isNetSeller ? -Math.round(tokens * 0.15) : 0,
         lastAction: isNetBuyer
-          ? `Swapped 25 SOL for ${upper} on Raydium (28m ago)`
+          ? `Swapped ${Math.round(tokens * 0.04 * baseProfile.price / 150)} ${chainNative} for ${upper} on ${dex} (${(seed % 50) + i}m ago)`
           : isNetSeller
-          ? `Sold ${Math.round(tokens * 0.05).toLocaleString()} ${upper} for USDC (1h ago)`
+          ? `Sold ${Math.round(tokens * 0.05).toLocaleString()} ${upper} for USDC (${(seed % 10) + i}h ago)`
           : "No transfers in last 72 hours",
-        totalBuys: isNetBuyer ? 14 : 3,
-        totalSells: isNetSeller ? 18 : 1,
+        totalBuys: isNetBuyer ? 10 + (seed % 10) : 3,
+        totalSells: isNetSeller ? 15 + (seed % 10) : 1,
         recentTrades: isNetBuyer
           ? [
-              { type: "buy", amount: Math.round(tokens * 0.04), usd: Math.round(tokens * 0.04 * baseProfile.price), timeAgo: "28m ago", dex: "Raydium" },
-              { type: "buy", amount: Math.round(tokens * 0.08), usd: Math.round(tokens * 0.08 * baseProfile.price), timeAgo: "3h ago", dex: "Jupiter" },
+              { type: "buy", amount: Math.round(tokens * 0.04), usd: Math.round(tokens * 0.04 * baseProfile.price), timeAgo: "28m ago", dex },
+              { type: "buy", amount: Math.round(tokens * 0.08), usd: Math.round(tokens * 0.08 * baseProfile.price), timeAgo: "3h ago", dex },
             ]
           : isNetSeller
           ? [
-              { type: "sell", amount: Math.round(tokens * 0.05), usd: Math.round(tokens * 0.05 * baseProfile.price), timeAgo: "1h ago", dex: "Raydium" },
+              { type: "sell", amount: Math.round(tokens * 0.05), usd: Math.round(tokens * 0.05 * baseProfile.price), timeAgo: "1h ago", dex },
             ]
           : [],
       },
     });
 
-    // Create syndicate transfer links for cluster 2
     if (isCluster2 && i > 4) {
       links.push({
         source: `wallet_${upper.toLowerCase()}_4`,
@@ -328,7 +367,6 @@ function generateDeterministicHolders(symbol: string): {
       });
     }
 
-    // Create syndicate transfer links for cluster 3
     if (isCluster3 && i > 11) {
       links.push({
         source: `wallet_${upper.toLowerCase()}_11`,

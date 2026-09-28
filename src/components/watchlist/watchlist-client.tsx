@@ -76,7 +76,8 @@ export function WatchlistClient({
   const [note, setNote] = useState<string | null>(null);
   const [details, setDetails] = useState<{
     symbol: string;
-    item: WatchlistItem | null;
+    item: any | null;
+    isReadOnly?: boolean;
   } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
@@ -350,6 +351,8 @@ export function WatchlistClient({
                   order_type: item.order_type,
                   notes: item.notes,
                   watchlist_item_id: item.id,
+                  screenshot_urls: item.screenshot_urls,
+                  screenshot_url: item.screenshot_url,
                 }),
               }).catch(() => {});
             }
@@ -637,6 +640,9 @@ export function WatchlistClient({
               setArchivedItems((prev) => [archivedItem, ...prev]);
             }
           }}
+          onViewDetails={(item) =>
+            setDetails({ symbol: item.symbol.toUpperCase(), item, isReadOnly: true })
+          }
         />
       ) : activeTab === "archive" ? (
         <WatchlistArchiveTab
@@ -650,6 +656,9 @@ export function WatchlistClient({
           onItemDeleted={(id) => {
             setArchivedItems((prev) => prev.filter((x) => x.id !== id));
           }}
+          onViewDetails={(item) =>
+            setDetails({ symbol: item.symbol.toUpperCase(), item, isReadOnly: true })
+          }
         />
       ) : items.length === 0 ? (
         <div className="hairline text-muted p-12 text-center text-sm rounded-xl bg-panel/30 flex flex-col items-center gap-3">
@@ -729,6 +738,7 @@ export function WatchlistClient({
         <CoinDetailModal
           symbol={details.symbol}
           item={details.item}
+          isReadOnly={details.isReadOnly}
           onClose={() => setDetails(null)}
           onSaved={reloadItems}
         />

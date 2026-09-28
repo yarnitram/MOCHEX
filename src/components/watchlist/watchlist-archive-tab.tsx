@@ -10,6 +10,7 @@ interface Props {
   icons?: Record<string, string>;
   onItemRestored: (item: WatchlistItem, archivedId: string) => void;
   onItemDeleted: (id: string) => void;
+  onViewDetails?: (item: any) => void;
 }
 
 export function WatchlistArchiveTab({
@@ -17,6 +18,7 @@ export function WatchlistArchiveTab({
   icons = {},
   onItemRestored,
   onItemDeleted,
+  onViewDetails,
 }: Props) {
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -244,6 +246,18 @@ export function WatchlistArchiveTab({
                 </td>
                 <td className="py-3 px-3 text-right">
                   <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => onViewDetails?.(item)}
+                      title="View token details"
+                      className="px-2 py-1 rounded text-[11px] font-mono font-medium text-text bg-panel hover:bg-panel-soft border border-line transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                      </svg>
+                      View
+                    </button>
                     <button
                       type="button"
                       onClick={() => setChartItem(item)}

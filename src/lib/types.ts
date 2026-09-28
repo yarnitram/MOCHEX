@@ -341,7 +341,8 @@ export type NotificationType =
   | "risk_warning"
   | "system"
   | "watchlist_trigger"
-  | "sl_tp_hit";
+  | "sl_tp_hit"
+  | "whale_alert";
 
 /** A user notification. */
 export interface Notification {
@@ -416,4 +417,24 @@ export interface AnalyticsSummary {
   byTag: Record<string, { count: number; winRate: number | null; netPnl: number }>;
   // Equity curve: cumulative realized P&L over time (closed trades only).
   equityCurve: { date: string; cumulative: number }[];
+}
+
+export interface AdminTrackedWallet {
+  id: string;
+  admin_id: string;
+  wallet_address: string;
+  label: string | null;
+  notes: string | null;
+  alert_enabled: boolean;
+  min_usd_threshold: number;
+  created_at: string;
+}
+
+export interface AdminTrackedToken {
+  id: string;
+  admin_id: string;
+  symbol: string;
+  alert_enabled: boolean;
+  min_usd_threshold: number;
+  created_at: string;
 }

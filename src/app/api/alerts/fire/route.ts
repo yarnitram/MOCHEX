@@ -158,6 +158,8 @@ export async function POST(request: Request) {
           ? String(b.watchlist_item_id).trim()
           : null,
       fired_at: new Date().toISOString(),
+      screenshot_urls: Array.isArray(b.screenshot_urls) ? b.screenshot_urls : [],
+      screenshot_url: b.screenshot_url != null ? String(b.screenshot_url) : null,
     };
 
     let { error: tradeLogError } = await supabase.from("trade_alerts").insert(tradePayload);
