@@ -75,7 +75,7 @@ export function PositionCalculatorModal({
   };
 
   return (
-    <ModalShell title={`🧮 Risk & Position Size Calculator (${initialSymbol})`} onClose={onClose}>
+    <ModalShell title={`🧮 Risk & Position Size Calculator (${initialSymbol})`} onClose={onClose} disableClickOutside={true}>
       <div className="flex flex-col gap-5 text-sm">
         {/* Input Parameters */}
         <div className="grid grid-cols-2 gap-4">

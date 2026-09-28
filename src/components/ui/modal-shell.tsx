@@ -20,7 +20,7 @@ export function ModalShell({
   children,
   maxWidth = "max-w-2xl",
   center = false,
-  disableClickOutside = false,
+  disableClickOutside = true,
 }: Props) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -35,8 +35,10 @@ export function ModalShell({
       className={`fixed inset-0 z-50 flex justify-center overflow-y-auto bg-black/60 backdrop-blur-sm p-3 sm:p-6 transition-all ${
         center ? "items-center" : "items-start"
       }`}
-      onClick={() => {
-        if (!disableClickOutside) onClose();
+      onClick={(e) => {
+        if (!disableClickOutside && e.target === e.currentTarget) {
+          onClose();
+        }
       }}
     >
       <div

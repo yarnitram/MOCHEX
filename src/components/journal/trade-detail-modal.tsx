@@ -56,7 +56,7 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
 
   return (
     <>
-      <ModalShell title={`${trade.symbol} · ${trade.direction.toUpperCase()}`} onClose={onClose}>
+      <ModalShell title={`${trade.symbol} · ${trade.direction.toUpperCase()}`} onClose={onClose} disableClickOutside={true}>
         <div className="flex flex-col gap-5">
           {/* Big P&L */}
           <div className="hairline-b pb-4">

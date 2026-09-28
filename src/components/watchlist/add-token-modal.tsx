@@ -366,7 +366,7 @@ export function AddTokenModal({
     "w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all font-mono";
 
   return (
-    <ModalShell title="🪙 Add Watchlist Setup" onClose={onClose} maxWidth="max-w-xl">
+    <ModalShell title="🪙 Add Watchlist Setup" onClose={onClose} maxWidth="max-w-xl" disableClickOutside={true}>
       <div className="flex flex-col gap-4 text-xs">
         {/* Success Banner */}
         {successBanner && (

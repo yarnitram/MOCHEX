@@ -283,6 +283,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
       title={editing ? `Edit ${trade?.symbol} Trade` : "⚡ New Journal Trade"}
       onClose={onClose}
       maxWidth="max-w-xl"
+      disableClickOutside={true}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-xs">
         {error && (

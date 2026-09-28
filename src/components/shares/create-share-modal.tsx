@@ -190,7 +190,7 @@ export function CreateShareModal({
     "hairline bg-panel px-3 py-2 text-xs outline-none focus:border-accent w-full rounded";
 
   return (
-    <ModalShell title="🔗 Create Public Share Page" onClose={onClose} maxWidth="max-w-2xl">
+    <ModalShell title="🔗 Create Public Share Page" onClose={onClose} maxWidth="max-w-2xl" disableClickOutside={true}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-5 text-xs max-h-[80vh] overflow-y-auto pr-1">
         {!username && (
           <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">

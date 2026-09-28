@@ -133,7 +133,7 @@ export function EditShareModal({
     "hairline bg-panel px-3 py-2 text-xs outline-none focus:border-accent w-full rounded";
 
   return (
-    <ModalShell title={`✏️ Edit ${share.share_type === "watchlist" ? "Watchlist" : "Trade"} Share Page`} onClose={onClose} maxWidth="max-w-2xl">
+    <ModalShell title={`✏️ Edit ${share.share_type === "watchlist" ? "Watchlist" : "Trade"} Share Page`} onClose={onClose} maxWidth="max-w-2xl" disableClickOutside={true}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-xs max-h-[80vh] overflow-y-auto pr-1">
         {/* Status Active Toggle */}
         <label className="flex items-center justify-between p-3 rounded bg-panel/60 border border-hairline cursor-pointer">

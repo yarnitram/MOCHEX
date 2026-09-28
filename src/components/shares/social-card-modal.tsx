@@ -129,7 +129,7 @@ export function SocialCardModal({
   };
 
   return (
-    <ModalShell title="📸 Export Social Setup Card" onClose={onClose} maxWidth="max-w-xl">
+    <ModalShell title="📸 Export Social Setup Card" onClose={onClose} maxWidth="max-w-xl" disableClickOutside={true}>
       <div className="flex flex-col gap-5 text-xs max-h-[80vh] overflow-y-auto pr-1">
         {/* Theme Selector */}
         <div className="flex items-center justify-between p-2.5 rounded-xl bg-panel-soft/60 border border-line">
