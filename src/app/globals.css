@@ -1,11 +1,13 @@
-@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* ============================================================
    MOCHEX — Crypto Trading Setup Journal
    Design tokens — indigo/violet aesthetic, light + dark modes.
-   All colors are CSS variables; Tailwind utilities map to them
-   via @theme inline. Mode is controlled by a `.dark` class on
-   <html> (set before first paint by an inline script in layout).
+   All colors are CSS variables mapped via tailwind.config.ts.
+   Mode is controlled by a `.dark` class on <html>
+   (set before first paint by an inline script in layout).
    ============================================================ */
 
 :root {
@@ -70,37 +72,6 @@
   --stripe: rgba(255, 255, 255, 0.025);
 
   --glow: rgba(139, 92, 246, 0.07);
-}
-
-@theme inline {
-  --color-ink: var(--ink);
-  --color-paper: var(--paper);
-  --color-panel: var(--panel);
-  --color-panel-soft: var(--panel-soft);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-text: var(--text);
-  --color-muted: var(--text-muted);
-  --color-subtle: var(--text-subtle);
-  --color-gain: var(--gain);
-  --color-loss: var(--loss);
-  --color-warning: var(--warning);
-  --color-info: var(--info);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-accent-contrast: var(--accent-contrast);
-  --color-accent-weak: var(--accent-weak);
-
-  /* Semantic Compatibility Aliases */
-  --color-surface: var(--panel);
-  --color-surface-soft: var(--panel-soft);
-  --color-hairline: var(--line);
-  --color-foreground: var(--text);
-  --color-card: var(--panel);
-
-  --font-sans: var(--font-plex-sans);
-  --font-mono: var(--font-plex-mono);
-  --font-serif: var(--font-newsreader);
 }
 
 body {
