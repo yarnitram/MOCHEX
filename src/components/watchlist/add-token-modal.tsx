@@ -208,6 +208,10 @@ export function AddTokenModal({
 
   function handleEntryChange(val: string) {
     setEntryPrice(val);
+    // Auto-sync trigger price to EP for Limit and Market order types
+    if (orderType === "limit" || orderType === "market") {
+      setTriggerPrice(val);
+    }
     const ep = parseFloat(val);
     const sl = parseFloat(stopLoss);
     if (!isNaN(ep) && !isNaN(sl)) {
@@ -262,15 +266,19 @@ export function AddTokenModal({
       return;
     }
 
-    const trigNum = triggerPrice ? parseFloat(triggerPrice) : null;
-    if (trigNum == null || isNaN(trigNum) || trigNum <= 0) {
-      setFormError("Trigger price is required and must be greater than 0.");
-      return;
-    }
-
     if (!orderType) {
       setFormError("Order type is required.");
       return;
+    }
+
+    // For Trigger Limit, triggerPrice must be set explicitly.
+    // For Limit/Market, triggerPrice mirrors EP (validated below).
+    const trigNum = triggerPrice ? parseFloat(triggerPrice) : null;
+    if (orderType === "trigger_limit") {
+      if (trigNum == null || isNaN(trigNum) || trigNum <= 0) {
+        setFormError("Trigger price is required and must be greater than 0.");
+        return;
+      }
     }
 
     const ep = entryPrice ? parseFloat(entryPrice) : null;
@@ -670,57 +678,7 @@ export function AddTokenModal({
               </div>
             </div>
 
-            {/* Price Alert / Trigger */}
-            <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
-                  Price Trigger (Alert)
-                </span>
-                {selectedToken.lastPrice > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => handleTriggerPriceChange(String(selectedToken.lastPrice))}
-                    className="text-[11px] font-mono text-accent hover:underline cursor-pointer"
-                  >
-                    Use Last: {fmtPx(selectedToken.lastPrice)}
-                  </button>
-                )}
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  <span>
-                    Trigger Price <span className="text-loss">*</span>
-                  </span>
-                  <input
-                    type="number"
-                    step="any"
-                    required
-                    value={triggerPrice}
-                    onChange={(e) => handleTriggerPriceChange(e.target.value)}
-                    placeholder="e.g. 64200"
-                    className={inputCls}
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1 text-xs text-muted">
-                  <span>Alert Condition</span>
-                  <select
-                    value={triggerDirection}
-                    onChange={(e) => setTriggerDirection(e.target.value as "above" | "below")}
-                    className={`${inputCls} cursor-pointer`}
-                  >
-                    <option value="below">Price drops to or below (≤)</option>
-                    <option value="above">Price rises to or above (≥)</option>
-                  </select>
-                </label>
-              </div>
-              <p className="text-[11px] text-muted leading-tight">
-                When live price reaches this trigger, you&apos;ll get notified on desktop &amp; Discord and the trade plan below will be displayed.
-              </p>
-            </div>
-
-            {/* Trade Plan (Execution Details) */}
+            {/* Trade Plan (Execution Details) — moved above Price Trigger */}
             <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
@@ -739,7 +697,14 @@ export function AddTokenModal({
                 <select
                   required
                   value={orderType}
-                  onChange={(e) => setOrderType(e.target.value as OrderType)}
+                  onChange={(e) => {
+                    const newType = e.target.value as OrderType;
+                    setOrderType(newType);
+                    // Auto-sync trigger price to EP when switching away from trigger_limit
+                    if (newType === "limit" || newType === "market") {
+                      if (entryPrice) setTriggerPrice(entryPrice);
+                    }
+                  }}
                   className={`${inputCls} cursor-pointer`}
                 >
                   {ORDER_TYPES.map((o) => (
@@ -823,6 +788,57 @@ export function AddTokenModal({
                 </div>
               )}
             </div>
+
+            {/* Price Alert / Trigger — only shown for Trigger Limit order type */}
+            {orderType === "trigger_limit" && (
+              <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
+                    Price Trigger (Alert)
+                  </span>
+                  {selectedToken.lastPrice > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => handleTriggerPriceChange(String(selectedToken.lastPrice))}
+                      className="text-[11px] font-mono text-accent hover:underline cursor-pointer"
+                    >
+                      Use Last: {fmtPx(selectedToken.lastPrice)}
+                    </button>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>
+                      Trigger Price <span className="text-loss">*</span>
+                    </span>
+                    <input
+                      type="number"
+                      step="any"
+                      value={triggerPrice}
+                      onChange={(e) => handleTriggerPriceChange(e.target.value)}
+                      placeholder="e.g. 64200"
+                      className={inputCls}
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs text-muted">
+                    <span>Alert Condition</span>
+                    <select
+                      value={triggerDirection}
+                      onChange={(e) => setTriggerDirection(e.target.value as "above" | "below")}
+                      className={`${inputCls} cursor-pointer`}
+                    >
+                      <option value="below">Price drops to or below (≤)</option>
+                      <option value="above">Price rises to or above (≥)</option>
+                    </select>
+                  </label>
+                </div>
+                <p className="text-[11px] text-muted leading-tight">
+                  When live price reaches this trigger, you&apos;ll get notified on desktop &amp; Discord and the trade plan above will be executed.
+                </p>
+              </div>
+            )}
 
             {/* Notes / Thesis */}
             <label className="flex flex-col gap-1 text-xs text-muted">
