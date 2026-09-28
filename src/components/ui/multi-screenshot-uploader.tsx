@@ -69,6 +69,16 @@ function LinkIcon({ className = "w-3 h-3" }: { className?: string }) {
   );
 }
 
+function DownloadIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  );
+}
+
 function SparklesIcon({ className = "w-3.5 h-3.5" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -111,9 +121,14 @@ export function MultiScreenshotUploader({
   const [compressionNotice, setCompressionNotice] = useState<string | null>(null);
   const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
-  // URL input field
+  // URL input field (Paste Link)
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [inputUrl, setInputUrl] = useState("");
+
+  // Download from URL state
+  const [showDownloadInput, setShowDownloadInput] = useState(false);
+  const [downloadUrl, setDownloadUrl] = useState("");
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Lightbox preview state
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -298,6 +313,40 @@ export function MultiScreenshotUploader({
     }
   };
 
+  const handleDownloadFromUrl = async () => {
+    const trimmed = downloadUrl.trim();
+    if (!trimmed) return;
+    if (urls.length >= maxFiles) {
+      setErrorNotice(`Maximum limit of ${maxFiles} screenshots reached.`);
+      return;
+    }
+    setIsDownloading(true);
+    setErrorNotice(null);
+    setCompressionNotice(null);
+    try {
+      const res = await fetch("/api/trades/screenshot/download-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tradeId: entityId || `screenshot-${Date.now()}`,
+          imageUrl: trimmed,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) {
+        throw new Error(data.error || "Download failed");
+      }
+      onChange([...urls, data.url]);
+      setDownloadUrl("");
+      setShowDownloadInput(false);
+      setCompressionNotice(`✅ Image downloaded & stored (${data.storage === "google_drive" ? "Google Drive" : "Supabase"})`);
+    } catch (err) {
+      setErrorNotice((err as Error).message || "Failed to download image from URL");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   return (
     <div ref={containerRef} className="space-y-2">
       {/* Top Header Label & Count */}
@@ -312,19 +361,74 @@ export function MultiScreenshotUploader({
 
         <div className="flex items-center gap-2">
           {canAddMore && (
-            <button
-              type="button"
-              onClick={() => setShowUrlInput(!showUrlInput)}
-              className="text-[11px] text-accent hover:underline flex items-center gap-1 cursor-pointer"
-            >
-              <LinkIcon className="w-3 h-3" />
-              <span>{showUrlInput ? "Hide Link" : "Paste Link"}</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDownloadInput(!showDownloadInput);
+                  if (showUrlInput) setShowUrlInput(false);
+                }}
+                className="text-[11px] text-accent hover:underline flex items-center gap-1 cursor-pointer"
+                title="Fetch and store an image from a direct URL"
+              >
+                <DownloadIcon className="w-3 h-3" />
+                <span>{showDownloadInput ? "Hide Download" : "Download URL"}</span>
+              </button>
+              <span className="text-text-muted/40 text-[11px]">|</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUrlInput(!showUrlInput);
+                  if (showDownloadInput) setShowDownloadInput(false);
+                }}
+                className="text-[11px] text-text-muted hover:text-accent hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <LinkIcon className="w-3 h-3" />
+                <span>{showUrlInput ? "Hide Link" : "Paste Link"}</span>
+              </button>
+            </>
           )}
         </div>
       </div>
 
-      {/* Manual URL Input dropdown if toggled */}
+      {/* Download from URL input */}
+      {showDownloadInput && canAddMore && (
+        <div className="flex flex-col gap-1.5 p-2.5 rounded-lg bg-panel border border-accent/30 text-xs animate-in fade-in duration-150">
+          <p className="text-[11px] text-text-muted leading-tight">
+            <span className="font-semibold text-accent">Download &amp; Store</span> — the image is fetched server-side and saved to your storage. Supports any direct image URL (jpg, png, webp, gif).
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="url"
+              value={downloadUrl}
+              onChange={(e) => setDownloadUrl(e.target.value)}
+              placeholder="https://example.com/chart.png"
+              className="flex-1 px-2.5 py-1.5 rounded bg-panel-bright border border-hairline text-text placeholder:text-text-muted/60 text-xs focus:outline-none focus:border-accent"
+              disabled={isDownloading}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleDownloadFromUrl();
+                }
+              }}
+            />
+            <button
+              type="button"
+              onClick={handleDownloadFromUrl}
+              disabled={!downloadUrl.trim() || isDownloading}
+              className="px-3 py-1.5 rounded bg-accent text-white font-medium hover:bg-accent/90 disabled:opacity-50 transition-colors text-xs flex-shrink-0 flex items-center gap-1.5 cursor-pointer"
+            >
+              {isDownloading ? (
+                <><SpinnerIcon className="w-3 h-3 animate-spin" /><span>Downloading...</span></>
+              ) : (
+                <><DownloadIcon className="w-3 h-3" /><span>Download</span></>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Manual URL Input dropdown if toggled (Paste Link — saves raw URL, no download) */}
       {showUrlInput && canAddMore && (
         <div className="flex items-center gap-2 p-2 rounded-lg bg-panel border border-hairline text-xs animate-in fade-in duration-150">
           <input
