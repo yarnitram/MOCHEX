@@ -63,6 +63,8 @@ export function WatchlistClient({
   // rows in the same order. The saved preference is applied AFTER hydration.
   const [sort, setSort] = useState<SortConfig>(DEFAULT_SORT);
 
+  const totalActiveItems = items.length;
+
   // ---- Filter (client-side coin search within saved items) ----
   const [filter, setFilter] = useState("");
 
@@ -351,8 +353,8 @@ export function WatchlistClient({
                   order_type: item.order_type,
                   notes: item.notes,
                   watchlist_item_id: item.id,
-                  screenshot_urls: item.screenshot_urls,
-                  screenshot_url: item.screenshot_url,
+                  screenshot_urls: itemScreenshots,
+                  screenshot_url: itemScreenshot,
                 }),
               }).catch(() => {});
             }
@@ -676,6 +678,16 @@ export function WatchlistClient({
         </div>
       ) : (
         <>
+          <div className="mb-4 bg-panel border border-line rounded-xl p-4 shadow-sm flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-xs text-muted uppercase font-semibold tracking-wide">
+                Total Active Setups
+              </span>
+              <span className="text-2xl font-black text-text mt-1">
+                {totalActiveItems}
+              </span>
+            </div>
+          </div>
           <WatchlistToolbar
             filter={filter}
             onFilterChange={(v) => {

@@ -225,7 +225,10 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
     setError(null);
 
     try {
-      const triggerPriceNum = triggerPrice ? parseFloat(triggerPrice) : null;
+      let triggerPriceNum = triggerPrice ? parseFloat(triggerPrice) : null;
+      if (orderType === "limit" || orderType === "market") {
+        triggerPriceNum = entry ? parseFloat(entry) : null;
+      }
       const lastPrice = ticker?.lastPrice ?? null;
 
       let firedImmediately = false;
@@ -477,20 +480,26 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1 text-xs text-muted">
-                    <span>
-                      Trigger price <span className="text-loss">*</span>
-                    </span>
-                    <input
-                      type="number"
-                      step="any"
-                      disabled={isReadOnly}
-                      className={inputCls}
-                      value={triggerPrice}
-                      onChange={(e) => handleTriggerPriceChange(e.target.value)}
-                      placeholder="e.g. 68000"
-                    />
-                  </label>
+                  {orderType === "limit" || orderType === "market" ? (
+                    <div className="flex flex-col gap-1 text-xs text-muted justify-center h-full">
+                      <span className="opacity-70 italic">Trigger linked to Entry price</span>
+                    </div>
+                  ) : (
+                    <label className="flex flex-col gap-1 text-xs text-muted">
+                      <span>
+                        Trigger price <span className="text-loss">*</span>
+                      </span>
+                      <input
+                        type="number"
+                        step="any"
+                        disabled={isReadOnly}
+                        className={inputCls}
+                        value={triggerPrice}
+                        onChange={(e) => handleTriggerPriceChange(e.target.value)}
+                        placeholder="e.g. 68000"
+                      />
+                    </label>
+                  )}
 
                   <label className="flex flex-col gap-1 text-xs text-muted">
                     <span>Alert Condition</span>
@@ -506,7 +515,9 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
                   </label>
                 </div>
                 <p className="text-[11px] text-muted">
-                  When price reaches this trigger, you&apos;ll receive an in-app, desktop &amp; Discord alert for your {position.toUpperCase()} setup.
+                  {orderType === "limit" || orderType === "market"
+                    ? `When price reaches your Entry Point, you'll receive an alert and this will move to Triggered.`
+                    : `When price reaches this trigger, you'll receive an in-app, desktop & Discord alert for your ${position.toUpperCase()} setup.`}
                 </p>
               </div>
 

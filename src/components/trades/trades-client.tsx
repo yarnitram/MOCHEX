@@ -611,6 +611,8 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
       await fetchArchived();
     }
   }
+  const totalActiveTrades = rows.length;
+  const totalPnl = rows.reduce((sum, r) => sum + (r.pnl || 0), 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -689,6 +691,33 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
       {/* Tab Contents */}
       {activeTab === "active" && (
         <>
+          <div className="mb-2 bg-panel border border-line rounded-xl p-4 shadow-sm flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-xs text-muted uppercase font-semibold tracking-wide">
+                Total Active Trades
+              </span>
+              <span className="text-2xl font-black text-text mt-1">
+                {totalActiveTrades}
+              </span>
+            </div>
+            <div className="flex flex-col text-right">
+              <span className="text-xs text-muted uppercase font-semibold tracking-wide">
+                Total UPNL
+              </span>
+              <span
+                className={`text-2xl font-black mt-1 ${
+                  totalPnl > 0
+                    ? "text-profit"
+                    : totalPnl < 0
+                    ? "text-loss"
+                    : "text-text"
+                }`}
+              >
+                {totalPnl > 0 ? "+" : ""}
+                {fmtUsd(totalPnl)}
+              </span>
+            </div>
+          </div>
           {activeAlerts.length > 0 && (
             <div className="flex items-center justify-between flex-wrap gap-3">
               <label className="flex items-center gap-2 text-xs text-muted">
