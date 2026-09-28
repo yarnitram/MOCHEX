@@ -4,6 +4,24 @@ import { useState } from "react";
 import type { ArchivedJournalTrade } from "@/lib/types";
 import { cleanSymbol, fmtPx } from "@/lib/format";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+
+function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
 
 interface Props {
   archivedTrades: ArchivedJournalTrade[];
@@ -38,6 +56,8 @@ export function ArchivedJournalTab({
   onDeletePermanent,
 }: Props) {
   const [chartTrade, setChartTrade] = useState<ArchivedJournalTrade | null>(null);
+  const [selectedScreenshots, setSelectedScreenshots] = useState<string[] | null>(null);
+  const [selectedScreenshotIndex, setSelectedScreenshotIndex] = useState(0);
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -269,11 +289,37 @@ CREATE TABLE IF NOT EXISTS public.archived_journal_trades (
 
                 const noteText = getNoteString(t.notes);
 
+                const rawScreenshots = (t as unknown as { screenshots?: string[] }).screenshots;
+                const singleScreenshot = (t as unknown as { screenshot_url?: string }).screenshot_url;
+                const screenshots =
+                  rawScreenshots && rawScreenshots.length > 0
+                    ? rawScreenshots
+                    : singleScreenshot
+                    ? [singleScreenshot]
+                    : [];
+
                 return (
                   <tr key={t.id} className="hover:bg-panel-soft/50 transition-colors">
                     <td className="py-3 px-4 font-semibold text-text">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-text">{coin}</span>
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-semibold text-text">{coin}</span>
+                          {screenshots.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedScreenshots(screenshots);
+                                setSelectedScreenshotIndex(0);
+                              }}
+                              title={`${screenshots.length} screenshot${screenshots.length > 1 ? "s" : ""} attached`}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-accent/15 text-accent border border-accent/25 hover:bg-accent/25 transition-colors cursor-pointer"
+                            >
+                              <CameraIcon className="w-3 h-3" />
+                              <span>{screenshots.length}</span>
+                            </button>
+                          )}
+                        </div>
                         {noteText && (
                           <span className="text-[10px] text-muted line-clamp-1 max-w-[140px]" title={noteText}>
                             {noteText}
@@ -404,6 +450,15 @@ CREATE TABLE IF NOT EXISTS public.archived_journal_trades (
             take_profit: chartTrade.exit_price,
             order_type: "market",
           }}
+        />
+      )}
+
+      {selectedScreenshots && selectedScreenshots.length > 0 && (
+        <ImageLightboxModal
+          isOpen={!!selectedScreenshots}
+          images={selectedScreenshots}
+          initialIndex={selectedScreenshotIndex}
+          onClose={() => setSelectedScreenshots(null)}
         />
       )}
     </div>

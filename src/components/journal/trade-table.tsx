@@ -1,7 +1,26 @@
 "use client";
 
+import { useState } from "react";
 import type { TradeWithExtras } from "@/lib/types";
 import { money, r } from "@/lib/format";
+import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+
+function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
 
 interface Props {
   trades: TradeWithExtras[];
@@ -26,6 +45,9 @@ export function TradeTable({
   onEdit,
   onDelete,
 }: Props) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxTitle, setLightboxTitle] = useState("");
   if (trades.length === 0) {
     return (
       <div className="hairline text-muted p-8 text-center text-sm">
@@ -79,6 +101,11 @@ export function TradeTable({
             const isGain = pnl > 0;
             const isLoss = pnl < 0;
             const isOpen = t.status === "open";
+            const screenshots: string[] = t.notes?.screenshot_urls?.length
+              ? t.notes.screenshot_urls
+              : t.notes?.screenshot_url
+              ? [t.notes.screenshot_url]
+              : [];
             return (
               <tr
                 key={t.id}
@@ -97,7 +124,27 @@ export function TradeTable({
                 <td className="px-3 py-2.5 num">
                   {formatDate(t.exit_time ?? t.entry_time)}
                 </td>
-                <td className="px-3 py-2.5 font-medium">{t.symbol}</td>
+                <td className="px-3 py-2.5 font-medium">
+                  <div className="flex items-center gap-2">
+                    <span>{t.symbol}</span>
+                    {screenshots.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLightboxImages(screenshots);
+                          setLightboxTitle(`${t.symbol} Screenshots`);
+                          setLightboxOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-accent/15 text-accent border border-accent/25 hover:bg-accent/25 transition-colors cursor-pointer shrink-0"
+                        title={`View ${screenshots.length} screenshot${screenshots.length > 1 ? "s" : ""}`}
+                      >
+                        <CameraIcon className="w-3 h-3" />
+                        <span>{screenshots.length}</span>
+                      </button>
+                    )}
+                  </div>
+                </td>
                 <td className="px-3 py-2.5">
                   <span
                     className={
@@ -214,6 +261,12 @@ export function TradeTable({
           })}
         </tbody>
       </table>
+      <ImageLightboxModal
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        images={lightboxImages}
+        title={lightboxTitle}
+      />
     </div>
   );
 }

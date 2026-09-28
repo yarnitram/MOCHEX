@@ -4,6 +4,24 @@ import { useState } from "react";
 import type { ArchivedTradeAlert } from "@/lib/types";
 import { sideForTrigger } from "@/lib/types";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+
+function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+      <circle cx="12" cy="13" r="3" />
+    </svg>
+  );
+}
 
 interface Props {
   archivedAlerts: ArchivedTradeAlert[];
@@ -38,6 +56,9 @@ export function ArchivedTradesTab({
   onDeletePermanent,
 }: Props) {
   const [chartItem, setChartItem] = useState<ArchivedTradeAlert | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxTitle, setLightboxTitle] = useState("");
 
   if (archivedAlerts.length === 0) {
     return (
@@ -73,10 +94,34 @@ export function ArchivedTradesTab({
             const pnlUsd = row.realized_pnl_usd;
             const isWin = (pnlUsd ?? 0) >= 0;
 
+            const screenshots: string[] = row.screenshot_urls?.length
+              ? row.screenshot_urls
+              : row.screenshot_url
+              ? [row.screenshot_url]
+              : [];
+
             return (
               <tr key={row.id} className="hover:bg-panel-soft/50 transition-colors">
                 <td className="py-3 px-4 font-semibold text-text">
-                  {formatSymbol(row.symbol)}
+                  <div className="flex items-center gap-2">
+                    <span>{formatSymbol(row.symbol)}</span>
+                    {screenshots.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setLightboxImages(screenshots);
+                          setLightboxTitle(`${formatSymbol(row.symbol)} Screenshots`);
+                          setLightboxOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium bg-accent/15 text-accent border border-accent/25 hover:bg-accent/25 transition-colors cursor-pointer shrink-0"
+                        title={`View ${screenshots.length} screenshot${screenshots.length > 1 ? "s" : ""}`}
+                      >
+                        <CameraIcon className="w-3 h-3" />
+                        <span>{screenshots.length}</span>
+                      </button>
+                    )}
+                  </div>
                 </td>
                 <td className="py-3 px-4">
                   <span
@@ -189,6 +234,13 @@ export function ArchivedTradesTab({
           }}
         />
       )}
+
+      <ImageLightboxModal
+        isOpen={lightboxOpen}
+        onClose={() => setLightboxOpen(false)}
+        images={lightboxImages}
+        title={lightboxTitle}
+      />
     </div>
   );
 }
