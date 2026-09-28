@@ -194,7 +194,7 @@ export function ManualTradeModal({
   const lastPx = selectedCoin?.lastPrice;
 
   return (
-    <ModalShell onClose={onClose} title="⚡ Add Manual Trade" maxWidth="max-w-xl">
+    <ModalShell onClose={onClose} title="⚡ Add Manual Trade" maxWidth="max-w-xl" disableClickOutside={true}>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4 text-xs">
         {error && (
           <div className="p-3 rounded-xl bg-loss/10 border border-loss/20 text-loss text-xs flex items-center justify-between">

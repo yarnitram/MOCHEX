@@ -82,7 +82,7 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
   }
 
   return (
-    <ModalShell onClose={onClose} title={`Close Trade — ${alert.symbol.replace(/_USDT$/i, "")}`}>
+    <ModalShell onClose={onClose} title={`Close Trade — ${alert.symbol.replace(/_USDT$/i, "")}`} disableClickOutside={true}>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
           <div className="rounded-lg bg-loss/10 border border-loss/20 p-3 text-xs text-loss">

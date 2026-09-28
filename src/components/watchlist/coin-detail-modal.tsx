@@ -326,6 +326,7 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
       title={`${cleanSymbol(symbol)} · Modify Setup & Alert`}
       onClose={onClose}
       maxWidth="max-w-xl"
+      disableClickOutside={true}
     >
       {error ? (
         <div className="text-sm text-loss">{error}</div>

@@ -160,6 +160,7 @@ export function TradeEditModal({
       title={`Modify Trade — ${alert.symbol.replace(/_USDT$/i, "")}`}
       onClose={onClose}
       maxWidth="max-w-xl"
+      disableClickOutside={true}
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
