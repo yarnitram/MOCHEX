@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fmtPx } from "@/lib/format";
 import type { AnnouncementData } from "@/app/api/admin/announcement/route";
+import { WatchlistImportTab } from "@/components/admin/watchlist-import-tab";
 
 interface Props {
   currentUserId: string;
@@ -29,7 +30,7 @@ interface UserItem {
   googleDriveConnected: boolean;
 }
 
-type TabType = "overview" | "users" | "webhooks" | "storage" | "announcements";
+type TabType = "overview" | "users" | "webhooks" | "storage" | "announcements" | "bulk-import";
 
 export function AdminDashboardClient({ currentUserId }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("overview");
@@ -316,6 +317,7 @@ export function AdminDashboardClient({ currentUserId }: Props) {
           { id: "webhooks", label: "Webhook Lab", icon: "⚡" },
           { id: "storage", label: "Cloud Storage Bucket", icon: "📁" },
           { id: "announcements", label: "Broadcast Banner", icon: "📢" },
+          { id: "bulk-import", label: "Bulk Import", icon: "📥" },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -1151,6 +1153,13 @@ export function AdminDashboardClient({ currentUserId }: Props) {
               <p>• Setting status to &quot;Draft / Inactive&quot; immediately hides it for everyone.</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* TAB 6: BULK WATCHLIST IMPORT */}
+      {activeTab === "bulk-import" && (
+        <div className="p-5 rounded-2xl bg-panel border border-line shadow-xl">
+          <WatchlistImportTab users={users.map((u) => ({ id: u.id, username: u.username, displayName: u.displayName }))} />
         </div>
       )}
     </div>
