@@ -92,7 +92,8 @@ export async function POST(request: Request) {
     exitPrice,
     alertRow.trigger_direction,
     alertRow.margin_usd,
-    alertRow.leverage
+    alertRow.leverage,
+    alertRow
   );
 
   const closedAt = new Date().toISOString();
@@ -121,7 +122,7 @@ export async function POST(request: Request) {
   try {
     const accountId = await resolveAccountId(supabase, user.id);
     if (accountId && entry != null && entry > 0) {
-      const side = sideForTrigger(alertRow.trigger_direction);
+      const side = sideForTrigger(alertRow.trigger_direction, alertRow);
       const lev = alertRow.leverage ?? 1;
       const margin = alertRow.margin_usd ?? 1;
       const notional = margin * lev;

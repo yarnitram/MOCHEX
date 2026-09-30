@@ -1,4 +1,4 @@
-import { sideForTrigger } from "./types";
+import { sideForTrigger, type TradeSideCandidate } from "./types";
 
 export interface PnlResult {
   realizedPnlUsd: number | null;
@@ -20,7 +20,8 @@ export function calculateTradePnl(
   exitPrice: number | null,
   triggerDirection: "above" | "below" | null | undefined,
   marginUsd: number | null | undefined,
-  leverage: number | null | undefined
+  leverage: number | null | undefined,
+  candidate?: TradeSideCandidate | null
 ): PnlResult {
   if (
     entryPrice == null ||
@@ -31,7 +32,7 @@ export function calculateTradePnl(
     return { realizedPnlUsd: null, realizedPnlPct: null, positionSize: null, notional: null };
   }
 
-  const side = sideForTrigger(triggerDirection);
+  const side = sideForTrigger(triggerDirection, candidate ?? { entry_price: entryPrice });
   const margin = marginUsd != null && marginUsd > 0 ? marginUsd : 1;
   const lev = leverage != null && leverage > 0 ? leverage : 1;
   const sign = side === "long" ? 1 : -1;
