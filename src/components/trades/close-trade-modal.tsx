@@ -28,6 +28,15 @@ export function CloseTradeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const defaultLev =
+    alert?.leverage != null && alert.leverage > 0
+      ? alert.leverage
+      : maxLeverage != null && maxLeverage > 0
+      ? maxLeverage
+      : 1;
+
+  const [leverage, setLeverage] = useState<string>(String(defaultLev));
+
   useEffect(() => {
     if (open && livePrice != null) {
       setExitPrice(livePrice.toString());
@@ -35,11 +44,21 @@ export function CloseTradeModal({
       const entry = alert.entry_price ?? alert.fired_price;
       setExitPrice(entry ? entry.toString() : "");
     }
-  }, [open, livePrice, alert]);
+    if (open && alert) {
+      const lev =
+        alert.leverage != null && alert.leverage > 0
+          ? alert.leverage
+          : maxLeverage != null && maxLeverage > 0
+          ? maxLeverage
+          : 1;
+      setLeverage(String(lev));
+    }
+  }, [open, livePrice, alert, maxLeverage]);
 
   if (!open || !alert) return null;
 
-  const effectiveLeverage = alert.leverage ?? maxLeverage ?? 1;
+  const numLev = Number(leverage);
+  const effectiveLeverage = Number.isFinite(numLev) && numLev > 0 ? numLev : defaultLev;
   const entry = alert.entry_price ?? alert.fired_price;
   const numExit = exitPrice ? Number(exitPrice) : null;
   const pnl = calculateTradePnl(
@@ -113,8 +132,68 @@ export function CloseTradeModal({
             <span className="font-mono text-text">{entry ?? "—"}</span>
           </div>
           <div>
-            <span className="text-muted block">Leverage</span>
-            <span className="font-mono text-accent font-semibold">{effectiveLeverage}x</span>
+            <span className="text-muted block">Margin</span>
+            <span className="font-mono text-text">${alert.margin_usd ?? 1}</span>
+          </div>
+        </div>
+
+        {/* Leverage configuration with presets */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-muted font-medium">
+              Closing Leverage (ROE Multiplier)
+            </label>
+            {maxLeverage != null && maxLeverage > 0 && (
+              <span className="text-[10px] font-mono text-muted">
+                Contract Max: {maxLeverage}x
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <input
+                type="number"
+                min="1"
+                max={maxLeverage ?? 125}
+                step="any"
+                value={leverage}
+                onChange={(e) => setLeverage(e.target.value)}
+                className="input-base w-full font-mono pr-7"
+                required
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">
+                x
+              </span>
+            </div>
+            <div className="flex items-center gap-1 flex-wrap">
+              {[1, 5, 10, 20, 50].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setLeverage(String(preset))}
+                  className={`px-2 py-1 rounded-md text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(preset)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  {preset}x
+                </button>
+              ))}
+              {maxLeverage != null && maxLeverage > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setLeverage(String(maxLeverage))}
+                  className={`px-2 py-1 rounded-md text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(maxLeverage)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  Max ({maxLeverage}x)
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

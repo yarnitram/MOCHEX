@@ -14,6 +14,7 @@ import { ChartModal } from "@/components/charts/chart-modal";
 import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
 import { playTpSound, playSlSound } from "@/lib/audio";
 import { detectHits } from "@/lib/sl-tp";
+import type { FuturesDetail } from "@/app/api/mexc/futures/route";
 
 function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
   return (
@@ -120,11 +121,23 @@ function cleanSymbol(s: string): string {
   return s.replace(/_USDT$/i, "");
 }
 
-interface ContractDetail {
+export interface ContractDetail {
   symbol: string;
   contractSize: number;
   maxLeverage: number;
   baseCoinIconUrl: string;
+}
+
+/** Resilient helper to resolve contract details across clean, upper, and _USDT symbol forms. */
+export function getContractDetail(
+  details: Record<string, FuturesDetail | ContractDetail> | undefined | null,
+  symbol: string | null | undefined
+): (FuturesDetail | ContractDetail) | null {
+  if (!details || !symbol) return null;
+  const upper = symbol.trim().toUpperCase();
+  const withUsdt = upper.endsWith("_USDT") ? upper : `${upper}_USDT`;
+  const clean = upper.replace(/_USDT$/i, "");
+  return details[withUsdt] ?? details[upper] ?? details[clean] ?? null;
 }
 
 const DEFAULT_MARGIN_USD = 1;
@@ -467,7 +480,11 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
     () =>
       activeAlerts.map((a) => {
         const sym = a.symbol.toUpperCase();
-        return buildRow(a, live[sym] ?? null, details[sym]?.maxLeverage ?? null);
+        return buildRow(
+          a,
+          live[sym] ?? null,
+          getContractDetail(details, a.symbol)?.maxLeverage ?? null
+        );
       }),
     [activeAlerts, live, details]
   );
@@ -1152,6 +1169,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
       {activeTab === "closed" && (
         <ClosedTradesTab
           closedAlerts={closedAlerts}
+          details={details}
           onEdit={(alert) => {
             setEditing(alert);
             setEditingIsArchived(false);
@@ -1213,6 +1231,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
         onClose={() => setManualModalOpen(false)}
         onSuccess={refreshAllAlerts}
         icons={icons}
+        details={details}
       />
 
       <CloseTradeModal
@@ -1222,7 +1241,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
         }
         maxLeverage={
           closingAlert
-            ? details[closingAlert.symbol.toUpperCase()]?.maxLeverage ?? null
+            ? getContractDetail(details, closingAlert.symbol)?.maxLeverage ?? null
             : null
         }
         open={closingAlert !== null}
@@ -1234,7 +1253,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
         <TradeEditModal
           alert={editing}
           isArchived={editingIsArchived}
-          maxLeverage={details[editing.symbol.toUpperCase()]?.maxLeverage ?? null}
+          maxLeverage={getContractDetail(details, editing.symbol)?.maxLeverage ?? null}
           onClose={() => setEditing(null)}
           onSaved={handleEditSaved}
         />

@@ -7,12 +7,14 @@ import { calculateTradePnl } from "@/lib/trade-calc";
 import { CoinPicker, type SelectedCoin } from "@/components/ui/coin-picker";
 import { fmtPx } from "@/lib/format";
 import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
+import { getContractDetail, type ContractDetail } from "./trades-client";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
   icons?: Record<string, string>;
+  details?: Record<string, ContractDetail>;
 }
 
 export function ManualTradeModal({
@@ -20,6 +22,7 @@ export function ManualTradeModal({
   onClose,
   onSuccess,
   icons = {},
+  details,
 }: Props) {
   const [selectedCoin, setSelectedCoin] = useState<SelectedCoin | null>(null);
   const [symbol, setSymbol] = useState("");
@@ -82,6 +85,12 @@ export function ManualTradeModal({
     }
     if (!triggerPrice && coin.lastPrice) {
       setTriggerPrice(String(coin.lastPrice));
+    }
+    const coinDetail = getContractDetail(details, coin.symbol);
+    if (coinDetail?.maxLeverage) {
+      setLeverage(String(coinDetail.maxLeverage));
+    } else if (!leverage) {
+      setLeverage("20");
     }
     setError(null);
   }
@@ -192,6 +201,8 @@ export function ManualTradeModal({
     "w-full px-3 py-2 rounded-xl bg-panel-soft/80 border border-line text-text placeholder:text-muted/60 text-xs focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent transition-all font-mono";
 
   const lastPx = selectedCoin?.lastPrice;
+
+  const maxLev = getContractDetail(details, symbol || selectedCoin?.symbol)?.maxLeverage ?? null;
 
   return (
     <ModalShell onClose={onClose} title="⚡ Add Manual Trade" maxWidth="max-w-xl" disableClickOutside={true}>
@@ -392,7 +403,7 @@ export function ManualTradeModal({
         </div>
 
         {/* 4. Position Sizing: Margin & Leverage */}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-xs text-muted">
             <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
               Margin ($)
@@ -407,19 +418,60 @@ export function ManualTradeModal({
             />
           </label>
 
-          <label className="flex flex-col gap-1 text-xs text-muted">
-            <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
-              Leverage (x)
-            </span>
-            <input
-              type="number"
-              step="any"
-              placeholder="e.g. 10"
-              value={leverage}
-              onChange={(e) => setLeverage(e.target.value)}
-              className={inputCls}
-            />
-          </label>
+          <div className="flex flex-col gap-1 text-xs text-muted">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono uppercase text-muted tracking-wider">
+                Leverage (x)
+              </span>
+              {maxLev != null && (
+                <span className="text-[10px] font-mono text-muted">
+                  Max: {maxLev}x
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <input
+                type="number"
+                step="any"
+                placeholder={maxLev ? String(maxLev) : "20"}
+                value={leverage}
+                onChange={(e) => setLeverage(e.target.value)}
+                className={`${inputCls} pr-6`}
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">
+                x
+              </span>
+            </div>
+            <div className="flex items-center gap-1 flex-wrap pt-0.5">
+              {[1, 5, 10, 20, 50].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setLeverage(String(preset))}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(preset)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  {preset}x
+                </button>
+              ))}
+              {maxLev != null && (
+                <button
+                  type="button"
+                  onClick={() => setLeverage(String(maxLev))}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(maxLev)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  Max ({maxLev}x)
+                </button>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* 5. Status: Active vs Closed */}

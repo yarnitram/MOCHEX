@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { calculateTradePnl } from "@/lib/trade-calc";
+import { createTrade } from "@/lib/trade-ops";
+import { sideForTrigger } from "@/lib/types";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,6 +11,20 @@ const posOrNull = (v: unknown) => {
   const n = numOrNull(v);
   return n != null && Number.isFinite(n) && n > 0 ? n : null;
 };
+
+async function resolveAccountId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("accounts")
+    .select("id")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return data ? (data as { id: string }).id : null;
+}
 
 /**
  * PATCH /api/trade-alerts/[id]
@@ -160,6 +176,55 @@ export async function PATCH(request: Request, { params }: Ctx) {
   }
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  // If transitioning to closed, log to Journal
+  if (effStatus === "closed" && current.status !== "closed" && effExit != null && effEntry != null && effEntry > 0) {
+    try {
+      const accountId = await resolveAccountId(supabase, user.id);
+      if (accountId) {
+        const side = sideForTrigger(effDirection, current);
+        const lev = effLeverage != null && effLeverage > 0 ? effLeverage : 1;
+        const margin = effMargin != null && effMargin > 0 ? effMargin : 1;
+        const notional = margin * lev;
+        const size = notional / effEntry;
+        const reasonLabel =
+          updates.closed_reason === "tp_hit"
+            ? "TP Hit"
+            : updates.closed_reason === "sl_hit"
+            ? "SL Hit"
+            : "Manual Close";
+
+        await createTrade(supabase, {
+          account_id: accountId,
+          symbol: String(updates.symbol ?? current.symbol),
+          direction: side,
+          size,
+          entry_price: effEntry,
+          exit_price: effExit,
+          stop_price: (updates.stop_loss !== undefined ? updates.stop_loss : current.stop_loss) as number | null,
+          fees: 0,
+          entry_time: current.fired_at || current.created_at || new Date().toISOString(),
+          exit_time: updates.closed_at ? String(updates.closed_at) : new Date().toISOString(),
+          tags: [reasonLabel],
+          post_trade_review: [
+            `Closed via Trade Alert (${reasonLabel}).`,
+            `Entry: ${effEntry} | Exit: ${effExit}`,
+            `Margin: $${margin} | Leverage: ${lev}x`,
+            updates.realized_pnl_usd != null
+              ? `PnL: $${Number(updates.realized_pnl_usd).toFixed(2)} (${(Number(updates.realized_pnl_pct) * 100).toFixed(2)}%)`
+              : "",
+            updates.close_notes ? `Notes: ${updates.close_notes}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          leverage: lev,
+        });
+      }
+    } catch (err) {
+      console.error("Failed to log edited trade to journal:", err);
+    }
+  }
+
   return NextResponse.json({ ok: true, alert: updated });
 }
 

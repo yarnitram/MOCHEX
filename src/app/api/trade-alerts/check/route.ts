@@ -16,6 +16,45 @@ let priceCache: {
 
 const CACHE_TTL_MS = 3000;
 
+const MEXC_FUTURES_DETAIL = "https://contract.mexc.com/api/v1/contract/detail";
+
+let detailCache: {
+  map: Record<string, number>;
+  fetchedAt: number;
+} | null = null;
+const DETAIL_CACHE_TTL_MS = 60_000;
+
+async function fetchContractLeverages(): Promise<Record<string, number>> {
+  const now = Date.now();
+  if (detailCache && now - detailCache.fetchedAt < DETAIL_CACHE_TTL_MS) {
+    return detailCache.map;
+  }
+  try {
+    const res = await fetch(MEXC_FUTURES_DETAIL, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return detailCache?.map ?? {};
+    const json = (await res.json()) as { success?: boolean; data?: { symbol: string; maxLeverage?: number }[] };
+    if (!json.data || !Array.isArray(json.data)) return detailCache?.map ?? {};
+
+    const map: Record<string, number> = {};
+    for (const d of json.data) {
+      if (d.symbol && typeof d.maxLeverage === "number" && d.maxLeverage > 0) {
+        const rawSym = d.symbol.toUpperCase();
+        map[rawSym] = d.maxLeverage;
+        const clean = rawSym.replace(/_USDT$/i, "");
+        map[clean] = d.maxLeverage;
+      }
+    }
+    detailCache = { map, fetchedAt: now };
+    return map;
+  } catch (err) {
+    console.error("[trade-alerts/check] Failed to fetch MEXC contract details:", err);
+    return detailCache?.map ?? {};
+  }
+}
+
 /**
  * Fetch MEXC futures tickers directly from exchange API (with 3-second cache).
  * Indexes tickers by multiple symbol variants (e.g. "BTC_USDT", "BTC") to prevent key mismatch.
@@ -116,6 +155,7 @@ export async function POST() {
   const accountId = await resolveAccountId(supabase, user.id);
 
   const hits: { symbol: string; level: HitLevel; price: number }[] = [];
+  const leverages = await fetchContractLeverages();
 
   for (const row of rows) {
     const symUpper = row.symbol.toUpperCase();
@@ -162,7 +202,8 @@ export async function POST() {
 
       const entry = row.entry_price ?? row.fired_price;
       const side = sideForTrigger(row.trigger_direction, row);
-      const lev = row.leverage ?? 1;
+      const contractLev = leverages[symUpper] ?? leverages[`${cleanSym}_USDT`] ?? leverages[cleanSym] ?? null;
+      const lev = (row.leverage != null && row.leverage > 0) ? row.leverage : (contractLev ?? 1);
       const margin = row.margin_usd ?? 1;
       const sign = side === "long" ? 1 : -1;
       const notional = margin * lev;
@@ -181,6 +222,7 @@ export async function POST() {
           closed_at: nowIso,
           realized_pnl_usd: pnlUsd,
           realized_pnl_pct: pnlPct,
+          leverage: lev,
         })
         .eq("id", row.id)
         .is(column, null)
@@ -191,7 +233,7 @@ export async function POST() {
       hits.push({ symbol: row.symbol, level, price });
       await announce(supabase, user.id, row, level, price);
       if (accountId) {
-        await logToJournal(supabase, accountId, row, level, price, pnlUsd, pnlPct).catch(() => {});
+        await logToJournal(supabase, accountId, row, level, price, lev, pnlUsd, pnlPct).catch(() => {});
       }
     }
   }
@@ -264,11 +306,12 @@ async function logToJournal(
   row: TradeAlert,
   level: HitLevel,
   hitPrice: number,
+  effectiveLeverage: number,
   pnlUsd?: number | null,
   pnlPct?: number | null
 ): Promise<void> {
   const entry = row.entry_price ?? hitPrice;
-  const leverage = row.leverage ?? 1;
+  const leverage = effectiveLeverage > 0 ? effectiveLeverage : 1;
   const size = entry > 0 ? ((row.margin_usd ?? 1) * leverage) / entry : 0;
   const nowIso = new Date().toISOString();
 
@@ -286,7 +329,7 @@ async function logToJournal(
     entry_time: row.fired_at || row.created_at || nowIso,
     exit_time: nowIso,
     tags: [level === "sl" ? "SL Hit" : "TP Hit"],
-    post_trade_review: reviewNote(row, level, hitPrice, entry, size, pnlUsd, pnlPct),
+    post_trade_review: reviewNote(row, level, hitPrice, entry, size, leverage, pnlUsd, pnlPct),
     leverage,
   });
 }
@@ -298,14 +341,13 @@ function reviewNote(
   hitPrice: number,
   entry: number,
   size: number,
+  leverage: number,
   pnlUsd?: number | null,
   pnlPct?: number | null
 ): string {
   const lines = [
     `Auto-closed: ${levelLabel(level)} hit at ${hitPrice}.`,
-    `Entry ${entry} · size ${size.toFixed(6)} · margin $${row.margin_usd ?? 1}${
-      row.leverage != null ? ` · ${row.leverage}x` : ""
-    }`,
+    `Entry ${entry} · size ${size.toFixed(6)} · margin $${row.margin_usd ?? 1} · ${leverage}x`,
   ];
   if (pnlUsd != null && pnlPct != null) {
     lines.push(`Realized PnL: $${pnlUsd.toFixed(2)} (${(pnlPct * 100).toFixed(2)}%)`);

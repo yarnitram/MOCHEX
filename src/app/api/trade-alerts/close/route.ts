@@ -9,6 +9,55 @@ export const dynamic = "force-dynamic";
 
 const numOrNull = (v: unknown) => (v == null || v === "" ? null : Number(v));
 
+const MEXC_FUTURES_DETAIL = "https://contract.mexc.com/api/v1/contract/detail";
+const DETAIL_LEV_TTL_MS = 60_000;
+
+let detailLevCache: { map: Record<string, number>; fetchedAt: number } | null = null;
+
+/**
+ * Resolve a contract's max leverage from the MEXC futures /detail endpoint.
+ * Values are indexed under both `BTC_USDT` and `BTC` forms and cached for 60s,
+ * so a close request never falls back to 1x when the contract leverage is knowable.
+ */
+async function resolveContractLeverage(symbol: string): Promise<number | null> {
+  const now = Date.now();
+  if (!detailLevCache || now - detailLevCache.fetchedAt >= DETAIL_LEV_TTL_MS) {
+    try {
+      const res = await fetch(MEXC_FUTURES_DETAIL, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (res.ok) {
+        const json = (await res.json()) as {
+          success?: boolean;
+          data?: { symbol: string; maxLeverage?: number }[];
+        };
+        const map: Record<string, number> = {};
+        for (const d of json.data ?? []) {
+          if (d.symbol && typeof d.maxLeverage === "number" && d.maxLeverage > 0) {
+            const rawSym = d.symbol.toUpperCase();
+            map[rawSym] = d.maxLeverage;
+            map[rawSym.replace(/_USDT$/i, "")] = d.maxLeverage;
+          }
+        }
+        if (Object.keys(map).length > 0) detailLevCache = { map, fetchedAt: now };
+      }
+    } catch {
+      // Network failure — fall through to any previously cached values.
+    }
+  }
+
+  if (!detailLevCache) return null;
+  const upper = symbol.trim().toUpperCase();
+  const clean = upper.replace(/_USDT$/i, "");
+  return (
+    detailLevCache.map[upper] ??
+    detailLevCache.map[`${clean}_USDT`] ??
+    detailLevCache.map[clean] ??
+    null
+  );
+}
+
 /** Resolve primary account for journal logging. */
 async function resolveAccountId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -88,7 +137,16 @@ export async function POST(request: Request) {
   }
 
   const entry = alertRow.entry_price ?? alertRow.fired_price;
-  const lev = numOrNull(b.leverage) ?? alertRow.leverage ?? 1;
+
+  // Resolve leverage: explicit request > stored alert leverage > MEXC contract max > 1x.
+  // The MEXC fallback prevents a manual close from silently logging 1x PnL when the
+  // alert was created without an explicit leverage but the contract supports more.
+  let lev = numOrNull(b.leverage) ?? alertRow.leverage ?? null;
+  if (lev == null || !Number.isFinite(lev) || lev <= 0) {
+    const contractLev = await resolveContractLeverage(alertRow.symbol);
+    lev = contractLev ?? 1;
+  }
+
   const pnl = calculateTradePnl(
     entry,
     exitPrice,
@@ -109,16 +167,24 @@ export async function POST(request: Request) {
     close_notes: closeNotes,
     realized_pnl_usd: pnl.realizedPnlUsd,
     realized_pnl_pct: pnl.realizedPnlPct,
+    leverage: lev,
   };
-  if (alertRow.leverage == null && lev > 0) {
-    updatePayload.leverage = lev;
-  }
 
-  const { error: updateErr } = await supabase
+  let { error: updateErr } = await supabase
     .from("trade_alerts")
     .update(updatePayload)
     .eq("id", alertId)
     .eq("user_id", user.id);
+
+  if (updateErr && (updateErr.message.includes("leverage") || updateErr.code === "PGRST204" || updateErr.code === "42703")) {
+    delete updatePayload.leverage;
+    const retry = await supabase
+      .from("trade_alerts")
+      .update(updatePayload)
+      .eq("id", alertId)
+      .eq("user_id", user.id);
+    updateErr = retry.error;
+  }
 
   if (updateErr) {
     return NextResponse.json({ error: updateErr.message }, { status: 400 });

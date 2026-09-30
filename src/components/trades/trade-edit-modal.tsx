@@ -325,17 +325,58 @@ export function TradeEditModal({
           </div>
 
           <div>
-            <label className="block text-xs text-muted font-medium mb-1">
-              Leverage (x)
-            </label>
-            <input
-              type="number"
-              step="any"
-              placeholder="Max / Custom"
-              value={leverage}
-              onChange={(e) => setLeverage(e.target.value)}
-              className="input-base w-full font-mono"
-            />
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-muted font-medium">
+                Leverage (x)
+              </label>
+              {maxLeverage != null && (
+                <span className="text-[10px] font-mono text-muted">
+                  Max: {maxLeverage}x
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <input
+                type="number"
+                step="any"
+                placeholder={maxLeverage ? String(maxLeverage) : "20"}
+                value={leverage}
+                onChange={(e) => setLeverage(e.target.value)}
+                className="input-base w-full font-mono pr-6"
+              />
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">
+                x
+              </span>
+            </div>
+            <div className="flex items-center gap-1 flex-wrap pt-1.5">
+              {[1, 5, 10, 20, 50].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setLeverage(String(preset))}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(preset)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  {preset}x
+                </button>
+              ))}
+              {maxLeverage != null && (
+                <button
+                  type="button"
+                  onClick={() => setLeverage(String(maxLeverage))}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono border transition-all cursor-pointer ${
+                    leverage === String(maxLeverage)
+                      ? "bg-accent/20 border-accent text-accent font-bold"
+                      : "bg-panel border-line text-muted hover:text-text"
+                  }`}
+                >
+                  Max ({maxLeverage}x)
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
