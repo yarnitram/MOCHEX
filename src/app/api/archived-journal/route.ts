@@ -87,6 +87,7 @@ export async function POST(request: Request) {
     notesData = notes ?? null;
   }
 
+  const accountId = tradeData.account_id ? String(tradeData.account_id) : null;
   const symbol = String(tradeData.symbol ?? "").toUpperCase();
   const direction = tradeData.direction === "short" ? "short" : "long";
   const entryPrice = Number(tradeData.entry_price);
@@ -101,35 +102,51 @@ export async function POST(request: Request) {
   const pnlPct = tradeData.pnl_pct != null ? Number(tradeData.pnl_pct) : null;
   const rMultiple = tradeData.r_multiple != null ? Number(tradeData.r_multiple) : null;
   const tags = tradeData.tags ?? [];
-  const accountId = tradeData.account_id ? String(tradeData.account_id) : null;
+  const leverage = tradeData.leverage != null ? Number(tradeData.leverage) : null;
   const archivedAt = new Date().toISOString();
 
   // 2. Insert into archived_journal_trades
-  const { data: archivedRow, error: insertErr } = await supabase
+  const insertPayload: Record<string, unknown> = {
+    user_id: user.id,
+    account_id: accountId,
+    trade_id: tradeId,
+    symbol,
+    direction,
+    entry_price: entryPrice,
+    exit_price: exitPrice,
+    size,
+    stop_price: stopPrice,
+    fees,
+    entry_time: entryTime,
+    exit_time: exitTime,
+    status,
+    pnl_dollars: pnlDollars,
+    pnl_pct: pnlPct,
+    r_multiple: rMultiple,
+    tags,
+    notes: notesData,
+    archived_at: archivedAt,
+  };
+  if (leverage != null && leverage > 0) {
+    insertPayload.leverage = leverage;
+  }
+
+  let { data: archivedRow, error: insertErr } = await supabase
     .from("archived_journal_trades")
-    .insert({
-      user_id: user.id,
-      account_id: accountId,
-      trade_id: tradeId,
-      symbol,
-      direction,
-      entry_price: entryPrice,
-      exit_price: exitPrice,
-      size,
-      stop_price: stopPrice,
-      fees,
-      entry_time: entryTime,
-      exit_time: exitTime,
-      status,
-      pnl_dollars: pnlDollars,
-      pnl_pct: pnlPct,
-      r_multiple: rMultiple,
-      tags,
-      notes: notesData,
-      archived_at: archivedAt,
-    })
+    .insert(insertPayload)
     .select("*")
     .single();
+
+  if (insertErr && (insertErr.message.includes("leverage") || insertErr.code === "PGRST204" || insertErr.code === "42703")) {
+    delete insertPayload.leverage;
+    const retry = await supabase
+      .from("archived_journal_trades")
+      .insert(insertPayload)
+      .select("*")
+      .single();
+    archivedRow = retry.data;
+    insertErr = retry.error;
+  }
 
   let tableMissing = false;
   if (insertErr) {

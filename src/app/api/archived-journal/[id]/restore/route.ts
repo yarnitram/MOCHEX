@@ -88,6 +88,7 @@ export async function POST(request: Request, { params }: Ctx) {
       notesObj.discipline_score != null
         ? Math.min(5, Math.max(1, Math.round(Number(notesObj.discipline_score))))
         : null,
+    leverage: item.leverage != null ? Number(item.leverage) : null,
   };
 
   try {

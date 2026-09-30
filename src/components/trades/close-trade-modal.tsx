@@ -8,12 +8,20 @@ import { sideForTrigger, type TradeAlert } from "@/lib/types";
 interface Props {
   alert: TradeAlert | null;
   livePrice: number | null;
+  maxLeverage?: number | null;
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: Props) {
+export function CloseTradeModal({
+  alert,
+  livePrice,
+  maxLeverage,
+  open,
+  onClose,
+  onSuccess,
+}: Props) {
   const [exitPrice, setExitPrice] = useState("");
   const [closedReason, setClosedReason] = useState<"manual_close" | "tp_hit" | "sl_hit">("manual_close");
   const [closeNotes, setCloseNotes] = useState("");
@@ -31,6 +39,7 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
 
   if (!open || !alert) return null;
 
+  const effectiveLeverage = alert.leverage ?? maxLeverage ?? 1;
   const entry = alert.entry_price ?? alert.fired_price;
   const numExit = exitPrice ? Number(exitPrice) : null;
   const pnl = calculateTradePnl(
@@ -38,10 +47,11 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
     numExit,
     alert.trigger_direction,
     alert.margin_usd,
-    alert.leverage
+    effectiveLeverage,
+    alert
   );
 
-  const side = sideForTrigger(alert.trigger_direction);
+  const side = sideForTrigger(alert.trigger_direction, alert);
   const isProfit = (pnl.realizedPnlUsd ?? 0) >= 0;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -64,6 +74,7 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
           exit_price: numExit,
           closed_reason: closedReason,
           close_notes: closeNotes,
+          leverage: effectiveLeverage,
         }),
       });
 
@@ -90,7 +101,7 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
           </div>
         )}
 
-        <div className="grid grid-cols-2 gap-3 p-3 bg-panel-soft/70 border border-line rounded-xl text-xs">
+        <div className="grid grid-cols-3 gap-2 p-3 bg-panel-soft/70 border border-line rounded-xl text-xs">
           <div>
             <span className="text-muted block">Position Side</span>
             <span className={`font-semibold ${side === "long" ? "text-gain" : "text-loss"}`}>
@@ -100,6 +111,10 @@ export function CloseTradeModal({ alert, livePrice, open, onClose, onSuccess }: 
           <div>
             <span className="text-muted block">Entry Price</span>
             <span className="font-mono text-text">{entry ?? "—"}</span>
+          </div>
+          <div>
+            <span className="text-muted block">Leverage</span>
+            <span className="font-mono text-accent font-semibold">{effectiveLeverage}x</span>
           </div>
         </div>
 

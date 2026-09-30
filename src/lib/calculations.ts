@@ -26,11 +26,30 @@ export function pnlDollars(t: Partial<Trade>): number {
   return gross - fees;
 }
 
-/** P&L as a percentage of notional at entry. */
+/**
+ * Extract leverage from post_trade_review text if available.
+ * Matches patterns like "Leverage: 20x", "· 100x", "Leverage: 10", etc.
+ */
+export function resolveLeverageFromNotes(review?: string | null): number | null {
+  if (!review || typeof review !== "string") return null;
+  const m = review.match(/(?:Leverage:\s*|·\s*)([0-9.]+)\s*x/i);
+  if (m) {
+    const val = parseFloat(m[1]);
+    if (Number.isFinite(val) && val > 0) return val;
+  }
+  return null;
+}
+
+/**
+ * P&L as a percentage of margin (Return on Investment / ROE).
+ * Incorporates leverage: Margin = Notional / Leverage.
+ * PnL % = (pnlDollars / Margin) * 100 = (pnlDollars / Notional) * Leverage * 100.
+ */
 export function pnlPct(t: Partial<Trade>): number {
   const notional = (t.entry_price ?? 0) * (t.size ?? 0);
   if (notional === 0) return 0;
-  return (pnlDollars(t) / notional) * 100;
+  const lev = t.leverage != null && t.leverage > 0 ? t.leverage : 1;
+  return (pnlDollars(t) / notional) * lev * 100;
 }
 
 /**
@@ -49,16 +68,24 @@ export function rMultiple(t: Partial<Trade>): number | null {
 }
 
 /** Attach the computed fields to a trade. Used in lists/details. */
-export function enrichTrade<T extends Partial<Trade>>(t: T): T & {
+export function enrichTrade<T extends Partial<Trade> & { notes?: { post_trade_review?: string | null } | null }>(t: T): T & {
   pnl_dollars: number;
   pnl_pct: number;
   r_multiple: number | null;
+  leverage: number | null;
 } {
+  const lev =
+    t.leverage != null && Number(t.leverage) > 0
+      ? Number(t.leverage)
+      : resolveLeverageFromNotes(t.notes?.post_trade_review);
+
+  const tradeWithLev = { ...t, leverage: lev };
+
   return {
-    ...t,
-    pnl_dollars: pnlDollars(t),
-    pnl_pct: pnlPct(t),
-    r_multiple: rMultiple(t),
+    ...tradeWithLev,
+    pnl_dollars: pnlDollars(tradeWithLev),
+    pnl_pct: pnlPct(tradeWithLev),
+    r_multiple: rMultiple(tradeWithLev),
   };
 }
 

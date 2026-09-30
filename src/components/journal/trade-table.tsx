@@ -146,13 +146,20 @@ export function TradeTable({
                   </div>
                 </td>
                 <td className="px-3 py-2.5">
-                  <span
-                    className={
-                      t.direction === "long" ? "text-gain" : "text-loss"
-                    }
-                  >
-                    {t.direction === "long" ? "Long" : "Short"}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={
+                        t.direction === "long" ? "text-gain" : "text-loss"
+                      }
+                    >
+                      {t.direction === "long" ? "Long" : "Short"}
+                    </span>
+                    {t.leverage != null && t.leverage > 1 && (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-accent/15 text-accent border border-accent/25">
+                        {t.leverage}x
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-2.5 num">{num(t.entry_price)}</td>
                 <td className="px-3 py-2.5 num">
@@ -167,7 +174,18 @@ export function TradeTable({
                     isGain ? "text-gain" : isLoss ? "text-loss" : ""
                   }`}
                 >
-                  {isOpen ? "—" : `${pnl >= 0 ? "+" : "-"}${money(Math.abs(pnl))}`}
+                  {isOpen ? (
+                    "—"
+                  ) : (
+                    <div className="flex flex-col items-end leading-tight">
+                      <span>{`${pnl >= 0 ? "+" : "-"}${money(Math.abs(pnl))}`}</span>
+                      {t.pnl_pct != null && (
+                        <span className="text-[11px] font-mono opacity-85">
+                          {t.pnl_pct >= 0 ? "+" : ""}{t.pnl_pct.toFixed(2)}%
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td
                   className={`px-3 py-2.5 num ${

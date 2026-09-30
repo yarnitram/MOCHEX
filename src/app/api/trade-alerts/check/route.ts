@@ -287,6 +287,7 @@ async function logToJournal(
     exit_time: nowIso,
     tags: [level === "sl" ? "SL Hit" : "TP Hit"],
     post_trade_review: reviewNote(row, level, hitPrice, entry, size, pnlUsd, pnlPct),
+    leverage,
   });
 }
 

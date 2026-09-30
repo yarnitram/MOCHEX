@@ -199,6 +199,7 @@ export async function POST(request: Request) {
           ]
             .filter(Boolean)
             .join("\n"),
+          leverage: lev,
         });
       }
     } catch (err) {

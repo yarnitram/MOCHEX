@@ -44,6 +44,12 @@ export async function PUT(request: Request, { params }: Ctx) {
         b.discipline_score != null && b.discipline_score !== ""
           ? Math.min(5, Math.max(1, Math.round(toNum(b.discipline_score))))
           : null,
+      leverage:
+        b.leverage !== undefined
+          ? b.leverage != null && b.leverage !== "" && Number(b.leverage) > 0
+            ? toNum(b.leverage)
+            : null
+          : undefined,
       clearNotes: Boolean(b.clearNotes),
       screenshot_url:
         b.screenshot_url !== undefined

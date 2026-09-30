@@ -97,6 +97,7 @@ export async function getTrades(
     entry_time: t.entry_time,
     exit_time: t.exit_time,
     status: t.status,
+    leverage: t.leverage != null ? Number(t.leverage) : null,
     created_at: t.created_at,
     tags: ((t.trade_tags ?? []) as { tag_id: string; tags: Tag }[])
       .map((j) => j.tags)

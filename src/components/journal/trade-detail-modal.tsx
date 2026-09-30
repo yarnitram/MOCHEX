@@ -47,6 +47,10 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
     }
   };
 
+  const notional = (trade.entry_price ?? 0) * (trade.size ?? 0);
+  const lev = trade.leverage != null && trade.leverage > 0 ? trade.leverage : 1;
+  const margin = notional / lev;
+
   const stat = (label: string, value: React.ReactNode) => (
     <div className="flex flex-col gap-0.5">
       <span className="text-xs text-muted">{label}</span>
@@ -56,7 +60,7 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
 
   return (
     <>
-      <ModalShell title={`${trade.symbol} · ${trade.direction.toUpperCase()}`} onClose={onClose} disableClickOutside={true}>
+      <ModalShell title={`${trade.symbol} · ${trade.direction.toUpperCase()}${lev > 1 ? ` · ${lev}x` : ""}`} onClose={onClose} disableClickOutside={true}>
         <div className="flex flex-col gap-5">
           {/* Big P&L */}
           <div className="hairline-b pb-4">
@@ -77,16 +81,18 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
                   isGain ? "text-gain" : isLoss ? "text-loss" : "text-muted"
                 }`}
               >
-                {percent(pct)} · {r(trade.r_multiple)}
+                {percent(pct)} ROE · {r(trade.r_multiple)}
               </div>
             )}
           </div>
 
           {/* Stat grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {stat("Entry", fmtPx(trade.entry_price))}
             {stat("Exit", trade.exit_price != null ? fmtPx(trade.exit_price) : "—")}
             {stat("Size", trade.size)}
+            {stat("Leverage", lev > 1 ? `${lev}x` : "1x (Spot)")}
+            {stat("Margin", money(margin))}
             {stat("Stop", trade.stop_price != null ? fmtPx(trade.stop_price) : "—")}
             {stat("Fees", money(trade.fees))}
             {stat(

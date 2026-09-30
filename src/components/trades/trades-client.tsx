@@ -1220,6 +1220,11 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
         livePrice={
           closingAlert ? live[closingAlert.symbol.toUpperCase()] ?? null : null
         }
+        maxLeverage={
+          closingAlert
+            ? details[closingAlert.symbol.toUpperCase()]?.maxLeverage ?? null
+            : null
+        }
         open={closingAlert !== null}
         onClose={() => setClosingAlert(null)}
         onSuccess={refreshAllAlerts}

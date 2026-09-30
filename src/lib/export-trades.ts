@@ -5,10 +5,12 @@ export interface TradeRowData {
   Date: string;
   Symbol: string;
   Side: string;
+  Leverage: string;
   Entry: number | "";
   Exit: number | "";
   Size: number;
   "P&L ($)": number | "";
+  "P&L (%)": number | "";
   "R-Multiple": number | "";
   Tags: string;
   Notes: string;
@@ -20,6 +22,7 @@ export function tradesToRows(trades: TradeWithExtras[]): TradeRowData[] {
   return trades.map((t) => {
     const exit = t.exit_price ?? "";
     const pnl = t.pnl_dollars ?? 0;
+    const pnlPctVal = t.pnl_pct ?? 0;
     const rm = t.r_multiple ?? "";
     const notes = [
       t.notes?.pre_trade_thesis,
@@ -27,14 +30,17 @@ export function tradesToRows(trades: TradeWithExtras[]): TradeRowData[] {
     ]
       .filter(Boolean)
       .join(" — ");
+    const levStr = t.leverage != null && t.leverage > 0 ? `${t.leverage}x` : "1x";
     return {
       Date: (t.exit_time ?? t.entry_time).slice(0, 10),
       Symbol: t.symbol,
       Side: t.direction,
+      Leverage: levStr,
       Entry: t.entry_price,
       Exit: exit,
       Size: t.size,
       "P&L ($)": t.status === "closed" ? Math.round(pnl * 100) / 100 : "",
+      "P&L (%)": t.status === "closed" ? Math.round(pnlPctVal * 100) / 100 : "",
       "R-Multiple":
         t.status === "closed" && typeof rm === "number"
           ? Math.round(rm * 100) / 100
@@ -60,11 +66,13 @@ export function downloadXlsx(
   ws["!cols"] = [
     { wch: 12 }, // Date
     { wch: 10 }, // Symbol
-    { wch: 8 }, // Side
+    { wch: 8 },  // Side
+    { wch: 10 }, // Leverage
     { wch: 12 }, // Entry
     { wch: 12 }, // Exit
     { wch: 10 }, // Size
-    { wch: 12 }, // P&L
+    { wch: 12 }, // P&L ($)
+    { wch: 12 }, // P&L (%)
     { wch: 12 }, // R
     { wch: 24 }, // Tags
     { wch: 50 }, // Notes

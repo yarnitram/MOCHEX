@@ -65,6 +65,10 @@ export async function POST(request: Request) {
         b.discipline_score != null && b.discipline_score !== ""
           ? Math.min(5, Math.max(1, Math.round(toNum(b.discipline_score))))
           : null,
+      leverage:
+        b.leverage != null && b.leverage !== "" && Number(b.leverage) > 0
+          ? toNum(b.leverage)
+          : null,
       screenshot_url: b.screenshot_url ? String(b.screenshot_url) : null,
       screenshot_urls: Array.isArray(b.screenshot_urls)
         ? (b.screenshot_urls as unknown[]).map(String).filter(Boolean)

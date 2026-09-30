@@ -42,6 +42,9 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
     trade?.direction ?? "long"
   );
   const [size, setSize] = useState(trade ? String(trade.size) : "");
+  const [leverage, setLeverage] = useState(
+    trade?.leverage != null && trade.leverage > 0 ? String(trade.leverage) : "1"
+  );
   const [entryPrice, setEntryPrice] = useState(
     trade ? String(trade.entry_price) : ""
   );
@@ -91,12 +94,15 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   const numStop = stopPrice.trim() !== "" ? Number(stopPrice) : null;
   const numSize = Number(size);
   const numFees = fees.trim() !== "" ? Number(fees) : 0;
+  const numLeverage = leverage.trim() !== "" ? Math.max(1, Number(leverage)) : 1;
+  const validLeverage = Number.isFinite(numLeverage) && numLeverage >= 1;
 
   const validEntry = Number.isFinite(numEntry) && numEntry > 0;
   const validSize = Number.isFinite(numSize) && numSize > 0;
 
-  // 1. Notional Position Value: Size * Entry Price
+  // 1. Notional Position Value: Size * Entry Price, and Required Margin
   const notionalValue = validEntry && validSize ? numEntry * numSize : null;
+  const marginValue = notionalValue != null ? notionalValue / (validLeverage ? numLeverage : 1) : null;
 
   // 2. Risk Calculations (if stop price is provided)
   const riskPerUnit =
@@ -109,7 +115,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   const totalRiskDollars =
     riskPerUnit != null && validSize ? riskPerUnit * numSize : null;
 
-  // 3. Realized or Projected PnL
+  // 3. Realized or Projected PnL (leveraged ROE %)
   const pnlCalculation = useMemo(() => {
     if (!validEntry || !validSize || numExit == null || !Number.isFinite(numExit)) {
       return null;
@@ -120,9 +126,10 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
         : (numExit - numEntry) * numSize;
     const net = gross - numFees;
     const notional = numEntry * numSize;
-    const pct = notional > 0 ? (net / notional) * 100 : 0;
+    const lev = validLeverage ? numLeverage : 1;
+    const pct = notional > 0 ? (net / notional) * lev * 100 : 0;
     return { gross, net, pct };
-  }, [validEntry, validSize, numEntry, numExit, numFees, direction]);
+  }, [validEntry, validSize, numEntry, numExit, numFees, direction, validLeverage, numLeverage]);
 
   // 4. R:R (Risk to Reward ratio)
   const rrCalculation = useMemo(() => {
@@ -171,6 +178,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
       setSymbol(trade.symbol);
       setDirection(trade.direction);
       setSize(String(trade.size));
+      setLeverage(trade.leverage != null && trade.leverage > 0 ? String(trade.leverage) : "1");
       setEntryPrice(String(trade.entry_price));
       setExitPrice(trade.exit_price != null ? String(trade.exit_price) : "");
       setStopPrice(trade.stop_price != null ? String(trade.stop_price) : "");
@@ -253,6 +261,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
           symbol: symbol.toUpperCase(),
           direction,
           size: num(size),
+          leverage: validLeverage ? numLeverage : 1,
           entry_price: entry,
           exit_price: exit,
           stop_price: num(stopPrice),
@@ -351,7 +360,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
           </div>
         </div>
 
-        {/* 3. Execution Levels: Size, Entry Time, Entry Price */}
+        {/* 3. Execution Levels: Size, Entry Time, Entry Price, Leverage */}
         <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
           <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
             Execution Details
@@ -407,7 +416,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
             </label>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1">
             <label className="flex flex-col gap-1 text-xs text-muted">
               <div className="flex items-center justify-between">
                 <span>Exit Price</span>
@@ -446,6 +455,47 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 placeholder="0.00"
               />
             </label>
+
+            <label className="flex flex-col gap-1 text-xs text-muted">
+              <div className="flex items-center justify-between">
+                <span>Leverage</span>
+                <span className="text-[10px] font-mono text-accent">
+                  {marginValue != null ? `~$${marginValue.toFixed(2)}` : ""}
+                </span>
+              </div>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="1"
+                  max="125"
+                  step="1"
+                  className={inputCls}
+                  value={leverage}
+                  onChange={(e) => setLeverage(e.target.value)}
+                  placeholder="1"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">x</span>
+              </div>
+            </label>
+          </div>
+
+          {/* Quick Leverage Presets */}
+          <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
+            <span className="text-[10px] font-mono uppercase">Leverage:</span>
+            {[1, 5, 10, 20, 50, 100].map((preset) => (
+              <button
+                key={preset}
+                type="button"
+                onClick={() => setLeverage(String(preset))}
+                className={`px-2 py-0.5 rounded-lg font-mono text-[10px] font-semibold border transition-all cursor-pointer ${
+                  leverage === String(preset)
+                    ? "bg-accent/20 border-accent text-accent"
+                    : "bg-panel border-line text-muted hover:text-text"
+                }`}
+              >
+                {preset}x
+              </button>
+            ))}
           </div>
 
           {/* Live Auto-Calculations Preview Box */}
@@ -476,19 +526,19 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 </span>
               </div>
 
-              {/* Max Risk */}
+              {/* Margin */}
               <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
-                <span className="text-[10px] text-muted font-mono uppercase">Max Risk ($)</span>
-                <span className={`font-mono font-semibold ${totalRiskDollars != null ? "text-loss" : "text-muted"}`}>
-                  {totalRiskDollars != null
-                    ? `$${totalRiskDollars.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                <span className="text-[10px] text-muted font-mono uppercase">Margin ({validLeverage ? numLeverage : 1}x)</span>
+                <span className="font-mono font-semibold text-accent">
+                  {marginValue != null
+                    ? `$${marginValue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                     : "—"}
                 </span>
               </div>
 
               {/* Projected/Realized PnL */}
               <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
-                <span className="text-[10px] text-muted font-mono uppercase">Net P&L</span>
+                <span className="text-[10px] text-muted font-mono uppercase">Net P&L (ROE)</span>
                 <span className={`font-mono font-semibold ${
                   pnlCalculation == null
                     ? "text-muted"
@@ -502,17 +552,21 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 </span>
               </div>
 
-              {/* R:R Ratio */}
+              {/* Max Risk / R:R */}
               <div className="p-2 rounded-lg bg-panel border border-line/60 flex flex-col">
-                <span className="text-[10px] text-muted font-mono uppercase">R:R Ratio</span>
+                <span className="text-[10px] text-muted font-mono uppercase">
+                  {rrCalculation != null ? "R:R Ratio" : "Max Risk ($)"}
+                </span>
                 <span className={`font-mono font-semibold ${
-                  rrCalculation == null
-                    ? "text-muted"
-                    : rrCalculation >= 1
-                    ? "text-gain"
-                    : "text-amber-400"
+                  rrCalculation != null
+                    ? rrCalculation >= 1 ? "text-gain" : "text-amber-400"
+                    : totalRiskDollars != null ? "text-loss" : "text-muted"
                 }`}>
-                  {rrCalculation != null ? `1 : ${rrCalculation.toFixed(2)}R` : "—"}
+                  {rrCalculation != null
+                    ? `1 : ${rrCalculation.toFixed(2)}R`
+                    : totalRiskDollars != null
+                    ? `$${totalRiskDollars.toLocaleString("en-US", { maximumFractionDigits: 2 })}`
+                    : "—"}
                 </span>
               </div>
             </div>

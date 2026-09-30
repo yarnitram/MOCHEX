@@ -65,23 +65,40 @@ export async function createTrade(
   const hasExit = input.exit_price != null && !Number.isNaN(input.exit_price);
   const status = hasExit ? "closed" : "open";
 
-  const { data: trade, error } = await supabase
+  const insertPayload: Record<string, unknown> = {
+    account_id: input.account_id,
+    symbol: input.symbol.trim().toUpperCase(),
+    direction: input.direction,
+    entry_price: input.entry_price,
+    exit_price: hasExit ? input.exit_price : null,
+    size: input.size,
+    stop_price: input.stop_price ?? null,
+    fees: input.fees ?? 0,
+    entry_time: input.entry_time,
+    exit_time: hasExit ? input.exit_time ?? null : null,
+    status,
+  };
+  if (input.leverage != null && input.leverage > 0) {
+    insertPayload.leverage = input.leverage;
+  }
+
+  let { data: trade, error } = await supabase
     .from("trades")
-    .insert({
-      account_id: input.account_id,
-      symbol: input.symbol.trim().toUpperCase(),
-      direction: input.direction,
-      entry_price: input.entry_price,
-      exit_price: hasExit ? input.exit_price : null,
-      size: input.size,
-      stop_price: input.stop_price ?? null,
-      fees: input.fees ?? 0,
-      entry_time: input.entry_time,
-      exit_time: hasExit ? input.exit_time ?? null : null,
-      status,
-    })
+    .insert(insertPayload)
     .select("id")
     .single();
+
+  // Retry fallback if leverage column does not exist yet in trades table
+  if (error && (error.message.includes("leverage") || error.code === "PGRST204" || error.code === "42703")) {
+    delete insertPayload.leverage;
+    const retry = await supabase
+      .from("trades")
+      .insert(insertPayload)
+      .select("id")
+      .single();
+    trade = retry.data;
+    error = retry.error;
+  }
 
   if (error) throw new Error(error.message);
   const tradeId = (trade as { id: string }).id;
@@ -101,7 +118,14 @@ export async function createTrade(
 
   // Notes.
   const thesis = input.pre_trade_thesis?.trim();
-  const review = input.post_trade_review?.trim();
+  let review = input.post_trade_review?.trim();
+  if (input.leverage != null && input.leverage > 0) {
+    if (!review) {
+      review = `Leverage: ${input.leverage}x`;
+    } else if (!review.toLowerCase().includes("leverage") && !review.match(/·\s*\d+x/)) {
+      review = `${review}\nLeverage: ${input.leverage}x`;
+    }
+  }
   const screenshot = input.screenshot_url?.trim();
   const screenshotUrls = Array.isArray(input.screenshot_urls)
     ? input.screenshot_urls.filter(Boolean)
@@ -145,21 +169,36 @@ export async function updateTrade(
   const hasExit = input.exit_price != null && !Number.isNaN(input.exit_price);
   const status = hasExit ? "closed" : "open";
 
-  const { error } = await supabase
+  const updatePayload: Record<string, unknown> = {
+    symbol: input.symbol.trim().toUpperCase(),
+    direction: input.direction,
+    entry_price: input.entry_price,
+    exit_price: hasExit ? input.exit_price : null,
+    size: input.size,
+    stop_price: input.stop_price ?? null,
+    fees: input.fees ?? 0,
+    entry_time: input.entry_time,
+    exit_time: hasExit ? input.exit_time ?? null : null,
+    status,
+  };
+  if (input.leverage !== undefined) {
+    updatePayload.leverage = input.leverage;
+  }
+
+  let { error } = await supabase
     .from("trades")
-    .update({
-      symbol: input.symbol.trim().toUpperCase(),
-      direction: input.direction,
-      entry_price: input.entry_price,
-      exit_price: hasExit ? input.exit_price : null,
-      size: input.size,
-      stop_price: input.stop_price ?? null,
-      fees: input.fees ?? 0,
-      entry_time: input.entry_time,
-      exit_time: hasExit ? input.exit_time ?? null : null,
-      status,
-    })
+    .update(updatePayload)
     .eq("id", tradeId);
+
+  // Retry fallback if leverage column does not exist yet
+  if (error && (error.message.includes("leverage") || error.code === "PGRST204" || error.code === "42703")) {
+    delete updatePayload.leverage;
+    const retry = await supabase
+      .from("trades")
+      .update(updatePayload)
+      .eq("id", tradeId);
+    error = retry.error;
+  }
   if (error) throw new Error(error.message);
 
   // Tags: replace the full set (delete + reinsert).

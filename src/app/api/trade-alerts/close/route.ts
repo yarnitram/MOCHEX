@@ -88,29 +88,35 @@ export async function POST(request: Request) {
   }
 
   const entry = alertRow.entry_price ?? alertRow.fired_price;
+  const lev = numOrNull(b.leverage) ?? alertRow.leverage ?? 1;
   const pnl = calculateTradePnl(
     entry,
     exitPrice,
     alertRow.trigger_direction,
     alertRow.margin_usd,
-    alertRow.leverage,
+    lev,
     alertRow
   );
 
   const closedAt = new Date().toISOString();
 
   // Update trade_alerts row to status = 'closed'
+  const updatePayload: Record<string, unknown> = {
+    status: "closed",
+    closed_reason: closedReason,
+    exit_price: exitPrice,
+    closed_at: closedAt,
+    close_notes: closeNotes,
+    realized_pnl_usd: pnl.realizedPnlUsd,
+    realized_pnl_pct: pnl.realizedPnlPct,
+  };
+  if (alertRow.leverage == null && lev > 0) {
+    updatePayload.leverage = lev;
+  }
+
   const { error: updateErr } = await supabase
     .from("trade_alerts")
-    .update({
-      status: "closed",
-      closed_reason: closedReason,
-      exit_price: exitPrice,
-      closed_at: closedAt,
-      close_notes: closeNotes,
-      realized_pnl_usd: pnl.realizedPnlUsd,
-      realized_pnl_pct: pnl.realizedPnlPct,
-    })
+    .update(updatePayload)
     .eq("id", alertId)
     .eq("user_id", user.id);
 
@@ -124,7 +130,6 @@ export async function POST(request: Request) {
     const accountId = await resolveAccountId(supabase, user.id);
     if (accountId && entry != null && entry > 0) {
       const side = sideForTrigger(alertRow.trigger_direction, alertRow);
-      const lev = alertRow.leverage ?? 1;
       const margin = alertRow.margin_usd ?? 1;
       const notional = margin * lev;
       const size = notional / entry;
@@ -159,6 +164,7 @@ export async function POST(request: Request) {
         ]
           .filter(Boolean)
           .join("\n"),
+        leverage: lev,
       });
       journalLogged = true;
     }

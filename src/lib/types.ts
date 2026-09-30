@@ -29,6 +29,7 @@ export interface Trade {
   entry_time: string;
   exit_time: string | null;
   status: TradeStatus;
+  leverage?: number | null;
   created_at: string;
 }
 
@@ -75,6 +76,7 @@ export interface ArchivedJournalTrade {
   entry_time: string;
   exit_time: string | null;
   status: TradeStatus;
+  leverage?: number | null;
   pnl_dollars?: number | null;
   pnl_pct?: number | null;
   r_multiple?: number | null;
@@ -429,6 +431,7 @@ export interface TradeInput {
   post_trade_review?: string;
   discipline_score?: number | null;
   clearNotes?: boolean;
+  leverage?: number | null;
   screenshot_url?: string | null;
   screenshot_urls?: string[];
 }
