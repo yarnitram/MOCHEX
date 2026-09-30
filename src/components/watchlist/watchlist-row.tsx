@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import type { WatchlistItem } from "@/lib/types";
+import { deriveTradeSide, type WatchlistItem } from "@/lib/types";
 import {
   cleanSymbol,
   fmtPct,
@@ -110,20 +110,7 @@ export function WatchlistRow({
     ? [item.screenshot_url]
     : [];
 
-  const side =
-    item.entry_price != null && item.stop_loss != null
-      ? item.entry_price >= item.stop_loss
-        ? "long"
-        : "short"
-      : item.entry_price != null && item.take_profit != null
-      ? item.take_profit >= item.entry_price
-        ? "long"
-        : "short"
-      : item.trigger_direction === "above"
-      ? "short"
-      : item.trigger_direction === "below"
-      ? "long"
-      : null;
+  const side = deriveTradeSide(item);
   const isLong = side === "long";
 
   return (

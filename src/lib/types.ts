@@ -329,10 +329,42 @@ export interface ArchivedWatchlistItem {
  */
 export type TradeSide = "long" | "short";
 
+export interface TradeSideCandidate {
+  entry_price?: number | null;
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  trigger_direction?: "above" | "below" | null;
+}
+
+/**
+ * Resolves position side ("long" | "short") consistently across
+ * Watchlist, Trades, Alerts, and Journal.
+ */
+export function deriveTradeSide(candidate?: TradeSideCandidate | null): TradeSide {
+  if (!candidate) return "long";
+  const { entry_price, stop_loss, take_profit, trigger_direction } = candidate;
+
+  if (entry_price != null && stop_loss != null && entry_price > 0 && stop_loss > 0) {
+    return entry_price >= stop_loss ? "long" : "short";
+  }
+  if (entry_price != null && take_profit != null && entry_price > 0 && take_profit > 0) {
+    return take_profit >= entry_price ? "long" : "short";
+  }
+  if (trigger_direction === "above") return "short";
+  if (trigger_direction === "below") return "long";
+  return "long";
+}
+
 export function sideForTrigger(
-  direction: "above" | "below" | null | undefined
+  direction: "above" | "below" | null | undefined,
+  candidate?: TradeSideCandidate | null
 ): TradeSide {
-  return direction === "above" ? "short" : "long";
+  return deriveTradeSide({
+    trigger_direction: direction,
+    entry_price: candidate?.entry_price,
+    stop_loss: candidate?.stop_loss,
+    take_profit: candidate?.take_profit,
+  });
 }
 
 /** Notification types. */

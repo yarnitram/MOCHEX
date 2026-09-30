@@ -83,7 +83,7 @@ export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
         </thead>
         <tbody className="divide-y divide-line">
           {closedAlerts.map((row) => {
-            const side = sideForTrigger(row.trigger_direction);
+            const side = sideForTrigger(row.trigger_direction, row);
             const entry = row.entry_price ?? row.fired_price;
             const pnlUsd = row.realized_pnl_usd;
             const pnlPct = row.realized_pnl_pct;
@@ -228,7 +228,7 @@ export function ClosedTradesTab({ closedAlerts, onEdit, onArchive }: Props) {
           symbol={chartItem.symbol}
           setup={{
             symbol: chartItem.symbol,
-            side: sideForTrigger(chartItem.trigger_direction) === "long" ? "LONG" : "SHORT",
+            side: sideForTrigger(chartItem.trigger_direction, chartItem) === "long" ? "LONG" : "SHORT",
             trigger_price: chartItem.trigger_price,
             entry_price: chartItem.entry_price ?? chartItem.fired_price,
             stop_loss: chartItem.stop_loss,

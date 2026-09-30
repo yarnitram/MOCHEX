@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { ArchivedWatchlistItem, WatchlistItem } from "@/lib/types";
+import { deriveTradeSide, type ArchivedWatchlistItem, type WatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPlanPx } from "@/lib/format";
 import { ChartModal } from "@/components/charts/chart-modal";
 
@@ -116,20 +116,7 @@ export function WatchlistArchiveTab({
         <tbody className="divide-y divide-line">
           {archivedItems.map((item) => {
             const sym = cleanSymbol(item.symbol);
-            const side =
-              item.entry_price != null && item.stop_loss != null
-                ? item.entry_price >= item.stop_loss
-                  ? "long"
-                  : "short"
-                : item.entry_price != null && item.take_profit != null
-                ? item.take_profit >= item.entry_price
-                  ? "long"
-                  : "short"
-                : item.trigger_direction === "above"
-                ? "short"
-                : item.trigger_direction === "below"
-                ? "long"
-                : null;
+            const side = deriveTradeSide(item);
             const isLong = side === "long";
 
             const orderTypeLabel =
@@ -308,12 +295,7 @@ export function WatchlistArchiveTab({
           symbol={chartItem.symbol}
           setup={{
             symbol: chartItem.symbol,
-            side:
-              chartItem.trigger_direction === "above"
-                ? "SHORT"
-                : chartItem.trigger_direction === "below"
-                ? "LONG"
-                : null,
+            side: deriveTradeSide(chartItem) === "long" ? "LONG" : "SHORT",
             trigger_price: chartItem.trigger_price,
             entry_price: chartItem.entry_price,
             stop_loss: chartItem.stop_loss,

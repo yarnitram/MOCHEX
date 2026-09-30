@@ -145,7 +145,7 @@ function buildRow(
   lastPrice: number | null,
   maxLeverage: number | null
 ): TradeRow {
-  const side = sideForTrigger(a.trigger_direction);
+  const side = sideForTrigger(a.trigger_direction, a);
   const entryUsed = a.entry_price ?? a.fired_price;
 
   const marginUsd =

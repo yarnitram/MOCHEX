@@ -84,7 +84,7 @@ export function detectHits(
 ): { level: HitLevel; price: number }[] {
   if (!Number.isFinite(price) || price <= 0) return [];
 
-  const side = sideForTrigger(row.trigger_direction);
+  const side = sideForTrigger(row.trigger_direction, row);
   const hit: { level: HitLevel; distance: number }[] = [];
 
   if (

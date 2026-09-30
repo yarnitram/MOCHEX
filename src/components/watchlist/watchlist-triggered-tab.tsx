@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { TriggeredWatchlistItem, WatchlistItem, ArchivedWatchlistItem } from "@/lib/types";
+import { deriveTradeSide, type TriggeredWatchlistItem, type WatchlistItem, type ArchivedWatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPlanPx, mexcChartUrl } from "@/lib/format";
 import { ChartModal } from "@/components/charts/chart-modal";
 
@@ -245,14 +245,7 @@ export function WatchlistTriggeredTab({
         <tbody className="divide-y divide-line">
           {triggeredItems.map((item) => {
             const sym = cleanSymbol(item.symbol);
-            const side =
-              item.entry_price != null && item.stop_loss != null
-                ? item.entry_price >= item.stop_loss
-                  ? "long"
-                  : "short"
-                : item.trigger_direction === "above"
-                ? "short"
-                : "long";
+            const side = deriveTradeSide(item);
             const isLong = side === "long";
 
             const orderTypeLabel =

@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       !row.tp1_hit &&
       row.entry_price != null
     ) {
-      const side = sideForTrigger(row.trigger_direction);
+      const side = sideForTrigger(row.trigger_direction, row);
       const hitTp1 =
         side === "long" ? price >= row.tp1_price : price <= row.tp1_price;
 
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       const nowIso = new Date().toISOString();
 
       const entry = row.entry_price ?? row.fired_price;
-      const side = sideForTrigger(row.trigger_direction);
+      const side = sideForTrigger(row.trigger_direction, row);
       const lev = row.leverage ?? 1;
       const margin = row.margin_usd ?? 1;
       const sign = side === "long" ? 1 : -1;
@@ -265,7 +265,7 @@ async function logToJournal(
 
   // `direction` shares the long/short vocabulary of the trades table and is
   // derived from the trigger direction, matching sideForTrigger().
-  const direction = row.trigger_direction === "above" ? "short" : "long";
+  const direction = sideForTrigger(row.trigger_direction, row);
 
   await createTrade(supabase, {
     account_id: accountId,
