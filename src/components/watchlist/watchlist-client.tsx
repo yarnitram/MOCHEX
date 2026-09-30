@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deriveTradeSide, type WatchlistItem, type TriggeredWatchlistItem, type ArchivedWatchlistItem } from "@/lib/types";
-import { inferTriggerDirection } from "@/lib/watchlist-utils";
 import { cleanSymbol, fmtPx, fmtPct, fmtPlanPx } from "@/lib/format";
 import { useMexcMarketData } from "@/hooks/use-mexc-market-data";
 import { playTriggerSound } from "@/lib/audio";
@@ -297,8 +296,12 @@ export function WatchlistClient({
             if (item.order_type === "trigger_limit") {
               // Trigger Limit: spawn new watchlist item with trigger = EP, order_type = Limit
               if (item.entry_price != null) {
-                const side = deriveTradeSide(item);
-                const epDirection = inferTriggerDirection(side);
+                const epDirection: "above" | "below" =
+                  lastPrice > 0
+                    ? item.entry_price > lastPrice
+                      ? "above"
+                      : "below"
+                    : item.trigger_direction ?? "below";
 
                 try {
                   const spawnRes = await fetch("/api/watchlist", {

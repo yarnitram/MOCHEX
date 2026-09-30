@@ -6,7 +6,7 @@ import type { OrderType, WatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPct } from "@/lib/format";
 import { ORDER_TYPE_LABELS } from "./watchlist-types";
 import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
-import { calculateRiskRewardRatio, inferTriggerDirection, getOrderTypeLabel } from "@/lib/watchlist-utils";
+import { calculateRiskRewardRatio, getOrderTypeLabel } from "@/lib/watchlist-utils";
 
 export interface AddSetupPayload {
   symbol: string;
@@ -192,7 +192,6 @@ export function AddTokenModal({
 
   function handlePositionChange(newPos: "long" | "short") {
     setPosition(newPos);
-    setTriggerDirection(inferTriggerDirection(newPos));
   }
 
   function handleTriggerPriceChange(val: string) {
@@ -219,10 +218,8 @@ export function AddTokenModal({
     if (!isNaN(ep) && !isNaN(sl)) {
       if (sl < ep) {
         setPosition("long");
-        setTriggerDirection("below");
       } else if (sl > ep) {
         setPosition("short");
-        setTriggerDirection("above");
       }
     }
   }
@@ -234,10 +231,8 @@ export function AddTokenModal({
     if (!isNaN(sl) && !isNaN(ep)) {
       if (sl < ep) {
         setPosition("long");
-        setTriggerDirection("below");
       } else if (sl > ep) {
         setPosition("short");
-        setTriggerDirection("above");
       }
     }
   }

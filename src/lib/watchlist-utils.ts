@@ -103,15 +103,6 @@ export function calculateTriggerDistance(
 }
 
 /**
- * Maps a trade side ("long" | "short") to its canonical trigger direction.
- * - LONG: trigger below entry (buy dip / breakout support)
- * - SHORT: trigger above entry (fade rally / breakout resistance)
- */
-export function inferTriggerDirection(side: TradeSide): "above" | "below" {
-  return side === "long" ? "below" : "above";
-}
-
-/**
  * Standardized order type human-readable labels.
  */
 export function getOrderTypeLabel(orderType: OrderType | string | null | undefined): string {
