@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { WatchlistItem, TriggeredWatchlistItem, ArchivedWatchlistItem } from "@/lib/types";
+import { deriveTradeSide, type WatchlistItem, type TriggeredWatchlistItem, type ArchivedWatchlistItem } from "@/lib/types";
+import { inferTriggerDirection } from "@/lib/watchlist-utils";
 import { cleanSymbol, fmtPx, fmtPct, fmtPlanPx } from "@/lib/format";
 import { useMexcMarketData } from "@/hooks/use-mexc-market-data";
 import { playTriggerSound } from "@/lib/audio";
@@ -78,7 +79,7 @@ export function WatchlistClient({
   const [note, setNote] = useState<string | null>(null);
   const [details, setDetails] = useState<{
     symbol: string;
-    item: any | null;
+    item: WatchlistItem | TriggeredWatchlistItem | ArchivedWatchlistItem | null;
     isReadOnly?: boolean;
   } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
@@ -290,32 +291,41 @@ export function WatchlistClient({
             const itemScreenshots = item.screenshot_urls || (item.screenshot_url ? [item.screenshot_url] : []);
             const itemScreenshot = item.screenshot_url || (item.screenshot_urls?.[0] ?? null);
 
+            let spawnedLimitItem: WatchlistItem | null = null;
+
             // 1. Send notification + log trade alert for /trades page FIRST while watchlist item still exists
             if (item.order_type === "trigger_limit") {
               // Trigger Limit: spawn new watchlist item with trigger = EP, order_type = Limit
               if (item.entry_price != null) {
-                const isLong =
-                  item.entry_price != null && item.stop_loss != null
-                    ? item.entry_price >= item.stop_loss
-                    : item.trigger_direction === "below";
-                const epDirection = isLong ? "below" : "above";
+                const side = deriveTradeSide(item);
+                const epDirection = inferTriggerDirection(side);
 
-                await fetch("/api/watchlist", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    symbol: sym,
-                    trigger_price: item.entry_price,
-                    trigger_direction: epDirection,
-                    entry_price: item.entry_price,
-                    stop_loss: item.stop_loss,
-                    take_profit: item.take_profit,
-                    order_type: "limit",
-                    notes: item.notes,
-                    screenshot_urls: itemScreenshots,
-                    screenshot_url: itemScreenshot,
-                  }),
-                });
+                try {
+                  const spawnRes = await fetch("/api/watchlist", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      symbol: sym,
+                      trigger_price: item.entry_price,
+                      trigger_direction: epDirection,
+                      entry_price: item.entry_price,
+                      stop_loss: item.stop_loss,
+                      take_profit: item.take_profit,
+                      order_type: "limit",
+                      notes: item.notes,
+                      screenshot_urls: itemScreenshots,
+                      screenshot_url: itemScreenshot,
+                    }),
+                  });
+                  if (spawnRes.ok) {
+                    const spawnData = await spawnRes.json();
+                    if (spawnData?.item) {
+                      spawnedLimitItem = spawnData.item;
+                    }
+                  }
+                } catch {
+                  // ignore spawn network failure
+                }
               }
 
               // Send notification without creating a /trades alert row
@@ -422,12 +432,12 @@ export function WatchlistClient({
               ...prev.filter((x) => x.id !== trigItem!.id),
             ]);
 
-            // 3. Remove from active watchlist after trade log and triggered archive have completed
+            // 3. Remove from active watchlist and add spawned limit item if present
             await fetch(`/api/watchlist/${item.id}`, { method: "DELETE" }).catch(() => {});
-            setItems((prev) => prev.filter((x) => x.id !== item.id));
-            if (item.order_type === "trigger_limit") {
-              await reloadItems();
-            }
+            setItems((prev) => {
+              const remaining = prev.filter((x) => x.id !== item.id);
+              return spawnedLimitItem ? [spawnedLimitItem, ...remaining] : remaining;
+            });
           }
         } catch {
           // ignore per-item failures

@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { WatchlistItem, OrderType } from "@/lib/types";
+import type { WatchlistItem, TriggeredWatchlistItem, ArchivedWatchlistItem, OrderType } from "@/lib/types";
 import { ModalShell } from "@/components/ui/modal-shell";
 import { SetupRevisionTimeline } from "@/components/revisions/setup-revision-timeline";
 import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
+import { calculateRiskRewardRatio, inferTriggerDirection, getOrderTypeLabel } from "@/lib/watchlist-utils";
 
 interface Props {
   symbol: string;
-  item: any | null;
+  item: WatchlistItem | TriggeredWatchlistItem | ArchivedWatchlistItem | null;
   isReadOnly?: boolean;
   onClose: () => void;
   onSaved?: () => void;
@@ -75,7 +76,7 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
 
   // Form state for the alert / trade plan.
   const [triggerPrice, setTriggerPrice] = useState(
-    toStr(item?.trigger_price ?? item?.alert_price)
+    toStr(item?.trigger_price ?? ("alert_price" in (item ?? {}) ? (item as any).alert_price : null))
   );
   const [triggerDirection, setTriggerDirection] = useState<"above" | "below">(
     item?.trigger_direction === "above" ? "above" : "below"
@@ -150,35 +151,16 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
   const slNum = stopLoss ? parseFloat(stopLoss) : null;
   const tpNum = takeProfit ? parseFloat(takeProfit) : null;
 
-  let rrRatio: string | null = null;
-  let riskWarning: string | null = null;
+  const { ratioStr: rrRatio, warning: riskWarning } = calculateRiskRewardRatio(
+    epNum,
+    slNum,
+    tpNum,
+    position
+  );
 
-  if (
-    epNum != null &&
-    slNum != null &&
-    tpNum != null &&
-    !isNaN(epNum) &&
-    !isNaN(slNum) &&
-    !isNaN(tpNum)
-  ) {
-    const risk = Math.abs(epNum - slNum);
-    const reward = Math.abs(tpNum - epNum);
-    if (risk > 0) {
-      rrRatio = (reward / risk).toFixed(2);
-    }
-    if (position === "long") {
-      if (slNum >= epNum) {
-        riskWarning = "For a LONG setup, Stop Loss should be below Entry Price.";
-      } else if (tpNum <= epNum) {
-        riskWarning = "For a LONG setup, Take Profit should be above Entry Price.";
-      }
-    } else {
-      if (slNum <= epNum) {
-        riskWarning = "For a SHORT setup, Stop Loss should be above Entry Price.";
-      } else if (tpNum >= epNum) {
-        riskWarning = "For a SHORT setup, Take Profit should be below Entry Price.";
-      }
-    }
+  function handlePositionChange(newPos: "long" | "short") {
+    setPosition(newPos);
+    setTriggerDirection(inferTriggerDirection(newPos));
   }
 
   function handleTriggerPriceChange(val: string) {
@@ -199,8 +181,13 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
     const ep = parseFloat(val);
     const sl = parseFloat(stopLoss);
     if (!isNaN(ep) && !isNaN(sl)) {
-      if (sl < ep) setPosition("long");
-      else if (sl > ep) setPosition("short");
+      if (sl < ep) {
+        setPosition("long");
+        setTriggerDirection("below");
+      } else if (sl > ep) {
+        setPosition("short");
+        setTriggerDirection("above");
+      }
     }
   }
 
@@ -209,8 +196,13 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
     const sl = parseFloat(val);
     const ep = parseFloat(entry);
     if (!isNaN(sl) && !isNaN(ep)) {
-      if (sl < ep) setPosition("long");
-      else if (sl > ep) setPosition("short");
+      if (sl < ep) {
+        setPosition("long");
+        setTriggerDirection("below");
+      } else if (sl > ep) {
+        setPosition("short");
+        setTriggerDirection("above");
+      }
     }
   }
 
@@ -242,7 +234,7 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
 
       const fireTime = firedImmediately ? new Date().toISOString() : null;
 
-      const prevTrigger = item.trigger_price ?? item.alert_price ?? null;
+      const prevTrigger = item.trigger_price ?? ("alert_price" in item ? (item as any).alert_price : null);
       const triggerChanged =
         triggerPriceNum !== null && triggerPriceNum !== prevTrigger;
 
@@ -417,7 +409,7 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
                   <button
                     type="button"
                     disabled={isReadOnly}
-                    onClick={() => setPosition("long")}
+                    onClick={() => handlePositionChange("long")}
                     className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all ${isReadOnly ? "opacity-70 cursor-not-allowed" : "cursor-pointer"} border ${
                       position === "long"
                         ? "bg-gain/20 text-gain border-gain shadow-sm"
@@ -440,7 +432,7 @@ export function CoinDetailModal({ symbol, item, isReadOnly, onClose, onSaved }: 
                   <button
                     type="button"
                     disabled={isReadOnly}
-                    onClick={() => setPosition("short")}
+                    onClick={() => handlePositionChange("short")}
                     className={`py-2 px-3 text-xs font-bold rounded-xl flex items-center justify-center gap-1.5 transition-all ${isReadOnly ? "opacity-70 cursor-not-allowed" : "cursor-pointer"} border ${
                       position === "short"
                         ? "bg-loss/20 text-loss border-loss shadow-sm"

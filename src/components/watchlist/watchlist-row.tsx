@@ -11,7 +11,7 @@ import {
   mexcChartUrl,
 } from "@/lib/format";
 import type { ColKey, Ticker } from "./watchlist-types";
-import { ORDER_TYPE_LABELS } from "./watchlist-types";
+import { getOrderTypeLabel } from "@/lib/watchlist-utils";
 import { ChartModal } from "@/components/charts/chart-modal";
 import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
 
@@ -256,7 +256,7 @@ export function WatchlistRow({
           <td className="px-3 py-2.5 num text-right">
             {item.order_type ? (
               <span className="px-1.5 py-0.5 rounded bg-panel-soft border border-line text-[10px] font-mono text-muted">
-                {ORDER_TYPE_LABELS[item.order_type] ?? item.order_type}
+                {getOrderTypeLabel(item.order_type)}
               </span>
             ) : (
               <span className="text-muted">—</span>

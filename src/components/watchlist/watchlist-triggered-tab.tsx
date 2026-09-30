@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { deriveTradeSide, type TriggeredWatchlistItem, type WatchlistItem, type ArchivedWatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPlanPx, mexcChartUrl } from "@/lib/format";
+import { getOrderTypeLabel } from "@/lib/watchlist-utils";
 import { ChartModal } from "@/components/charts/chart-modal";
 
 const MIGRATION_SQL = `-- Migration 012: triggered_watchlist_items
@@ -248,14 +249,7 @@ export function WatchlistTriggeredTab({
             const side = deriveTradeSide(item);
             const isLong = side === "long";
 
-            const orderTypeLabel =
-              item.order_type === "trigger_limit"
-                ? "Trigger Limit"
-                : item.order_type === "limit"
-                ? "Limit"
-                : item.order_type === "market"
-                ? "Market"
-                : "—";
+            const orderTypeLabel = getOrderTypeLabel(item.order_type);
 
             const firedAtFormatted = new Date(item.fired_at).toLocaleString("en-SG", {
               month: "short",

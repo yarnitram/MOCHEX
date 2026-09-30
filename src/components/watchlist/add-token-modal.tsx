@@ -6,6 +6,7 @@ import type { OrderType, WatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPct } from "@/lib/format";
 import { ORDER_TYPE_LABELS } from "./watchlist-types";
 import { MultiScreenshotUploader } from "@/components/ui/multi-screenshot-uploader";
+import { calculateRiskRewardRatio, inferTriggerDirection, getOrderTypeLabel } from "@/lib/watchlist-utils";
 
 export interface AddSetupPayload {
   symbol: string;
@@ -191,6 +192,7 @@ export function AddTokenModal({
 
   function handlePositionChange(newPos: "long" | "short") {
     setPosition(newPos);
+    setTriggerDirection(inferTriggerDirection(newPos));
   }
 
   function handleTriggerPriceChange(val: string) {
@@ -215,8 +217,13 @@ export function AddTokenModal({
     const ep = parseFloat(val);
     const sl = parseFloat(stopLoss);
     if (!isNaN(ep) && !isNaN(sl)) {
-      if (sl < ep) setPosition("long");
-      else if (sl > ep) setPosition("short");
+      if (sl < ep) {
+        setPosition("long");
+        setTriggerDirection("below");
+      } else if (sl > ep) {
+        setPosition("short");
+        setTriggerDirection("above");
+      }
     }
   }
 
@@ -225,39 +232,27 @@ export function AddTokenModal({
     const sl = parseFloat(val);
     const ep = parseFloat(entryPrice);
     if (!isNaN(sl) && !isNaN(ep)) {
-      if (sl < ep) setPosition("long");
-      else if (sl > ep) setPosition("short");
+      if (sl < ep) {
+        setPosition("long");
+        setTriggerDirection("below");
+      } else if (sl > ep) {
+        setPosition("short");
+        setTriggerDirection("above");
+      }
     }
   }
 
-  // Calculate live Risk/Reward ratio
+  // Calculate live Risk/Reward ratio and warnings using centralized utility
   const epNum = entryPrice ? parseFloat(entryPrice) : null;
   const slNum = stopLoss ? parseFloat(stopLoss) : null;
   const tpNum = takeProfit ? parseFloat(takeProfit) : null;
 
-  let rrRatio: string | null = null;
-  let riskWarning: string | null = null;
-
-  if (epNum != null && slNum != null && tpNum != null && !isNaN(epNum) && !isNaN(slNum) && !isNaN(tpNum)) {
-    const risk = Math.abs(epNum - slNum);
-    const reward = Math.abs(tpNum - epNum);
-    if (risk > 0) {
-      rrRatio = (reward / risk).toFixed(2);
-    }
-    if (position === "long") {
-      if (slNum >= epNum) {
-        riskWarning = "For a LONG setup, Stop Loss should be below Entry Price.";
-      } else if (tpNum <= epNum) {
-        riskWarning = "For a LONG setup, Take Profit should be above Entry Price.";
-      }
-    } else {
-      if (slNum <= epNum) {
-        riskWarning = "For a SHORT setup, Stop Loss should be above Entry Price.";
-      } else if (tpNum >= epNum) {
-        riskWarning = "For a SHORT setup, Take Profit should be below Entry Price.";
-      }
-    }
-  }
+  const { ratioStr: rrRatio, warning: riskWarning } = calculateRiskRewardRatio(
+    epNum,
+    slNum,
+    tpNum,
+    position
+  );
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

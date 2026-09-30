@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { deriveTradeSide, type ArchivedWatchlistItem, type WatchlistItem } from "@/lib/types";
 import { cleanSymbol, fmtPx, fmtPlanPx } from "@/lib/format";
+import { getOrderTypeLabel } from "@/lib/watchlist-utils";
 import { ChartModal } from "@/components/charts/chart-modal";
 
 interface Props {
@@ -119,14 +120,7 @@ export function WatchlistArchiveTab({
             const side = deriveTradeSide(item);
             const isLong = side === "long";
 
-            const orderTypeLabel =
-              item.order_type === "trigger_limit"
-                ? "Trigger Limit"
-                : item.order_type === "limit"
-                ? "Limit"
-                : item.order_type === "market"
-                ? "Market"
-                : "—";
+            const orderTypeLabel = getOrderTypeLabel(item.order_type);
 
             const isFromTriggered = item.archive_source === "triggered_deleted";
             const archivedAtFormatted = new Date(item.archived_at).toLocaleString("en-SG", {
