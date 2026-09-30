@@ -3,8 +3,70 @@ import { createClient } from "@/lib/supabase/server";
 import { createTrade } from "@/lib/trade-ops";
 import { detectHits, levelLabel, type HitLevel } from "@/lib/sl-tp";
 import { sideForTrigger, type TradeAlert } from "@/lib/types";
+import { dispatchAlertNotification } from "@/lib/notification-dispatch";
 
 export const dynamic = "force-dynamic";
+
+const MEXC_FUTURES_TICKER = "https://contract.mexc.com/api/v1/contract/ticker";
+
+let priceCache: {
+  map: Record<string, number>;
+  fetchedAt: number;
+} | null = null;
+
+const CACHE_TTL_MS = 3000;
+
+/**
+ * Fetch MEXC futures tickers directly from exchange API (with 3-second cache).
+ * Indexes tickers by multiple symbol variants (e.g. "BTC_USDT", "BTC") to prevent key mismatch.
+ * Avoids Next.js internal HTTP self-loopback deadlocks.
+ */
+async function fetchPrices(): Promise<Record<string, number> | null> {
+  const now = Date.now();
+  if (priceCache && now - priceCache.fetchedAt < CACHE_TTL_MS) {
+    return priceCache.map;
+  }
+
+  try {
+    const res = await fetch(MEXC_FUTURES_TICKER, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      if (priceCache) return priceCache.map;
+      return null;
+    }
+
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { symbol: string; lastPrice: number }[];
+    };
+    if (!json.data || !Array.isArray(json.data)) {
+      if (priceCache) return priceCache.map;
+      return null;
+    }
+
+    const map: Record<string, number> = {};
+    for (const t of json.data) {
+      if (typeof t.lastPrice === "number" && t.lastPrice > 0 && t.symbol) {
+        const rawSym = t.symbol.toUpperCase();
+        map[rawSym] = t.lastPrice;
+        // Strip suffixes so both "BTC_USDT" and "BTC" resolve
+        const strippedUnderscore = rawSym.replace(/_USDT$/i, "");
+        map[strippedUnderscore] = t.lastPrice;
+        const strippedNoUnderscore = rawSym.replace(/USDT$/i, "");
+        map[strippedNoUnderscore] = t.lastPrice;
+      }
+    }
+
+    priceCache = { map, fetchedAt: now };
+    return map;
+  } catch (err) {
+    console.error("[trade-alerts/check] Failed to fetch MEXC tickers directly:", err);
+    if (priceCache) return priceCache.map;
+    return null;
+  }
+}
 
 /**
  * POST /api/trade-alerts/check
@@ -12,16 +74,13 @@ export const dynamic = "force-dynamic";
  * Check every outstanding trade plan against the current MEXC price and, for
  * each stop-loss / take-profit the price has just crossed:
  *   1. claim the level atomically (so it never fires twice),
- *   2. notify the user naming the level (SL or TP),
+ *   2. notify the user naming the level (SL or TP) directly via DB + webhooks,
  *   3. log a new Journal trade from the plan.
  *
  * Called by the /trades page poller and by scripts/alert-watcher.mjs, so a hit
  * is caught whether or not a browser tab is open.
- *
- * Side effects are best-effort, but the level is only marked fired once it has
- * actually been claimed, so a failure never silently swallows the alarm.
  */
-export async function POST(request: Request) {
+export async function POST() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -35,7 +94,7 @@ export async function POST(request: Request) {
     .from("trade_alerts")
     .select("*")
     .eq("user_id", user.id)
-    .neq("status", "closed")
+    .or("status.neq.closed,status.is.null")
     .or("sl_fired_at.is.null,tp_fired_at.is.null");
 
   if (error) {
@@ -46,7 +105,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, checked: 0, hits: [] });
   }
 
-  const prices = await fetchPrices(request);
+  const prices = await fetchPrices();
   // Prices are the whole point of the check — if they are unavailable, bail
   // without claiming anything so the hit is caught on a later poll.
   if (prices == null) {
@@ -59,7 +118,13 @@ export async function POST(request: Request) {
   const hits: { symbol: string; level: HitLevel; price: number }[] = [];
 
   for (const row of rows) {
-    const price = prices[row.symbol.toUpperCase()];
+    const symUpper = row.symbol.toUpperCase();
+    const cleanSym = symUpper.replace(/_USDT$/i, "");
+    const price =
+      prices[symUpper] ??
+      prices[cleanSym] ??
+      prices[`${cleanSym}_USDT`];
+
     if (price == null) continue;
 
     // ---- Multi-TP1 & Auto-Breakeven SL Engine ----
@@ -79,21 +144,13 @@ export async function POST(request: Request) {
         }
         await supabase.from("trade_alerts").update(updateObj).eq("id", row.id);
 
-        const sym = row.symbol.replace(/_USDT$/i, "");
-        fetch(new URL("/api/alerts/fire", new URL(request.url).origin), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            cookie: request.headers.get("cookie") ?? "",
-          },
-          body: JSON.stringify({
-            type: "tp1_hit",
-            title: `${sym} TP1 Hit!`,
-            message: `Price ${price} reached TP1 (${row.tp1_price}). ${
-              row.auto_be_on_tp1 !== false ? "Stop loss automatically moved to Breakeven (EP)." : ""
-            }`,
-            link: "/trades",
-          }),
+        await dispatchAlertNotification(supabase, user.id, {
+          type: "trade_alert",
+          title: `${cleanSym} TP1 Hit!`,
+          message: `Price ${price} reached TP1 (${row.tp1_price}). ${
+            row.auto_be_on_tp1 !== false ? "Stop loss automatically moved to Breakeven (EP)." : ""
+          }`,
+          link: "/trades",
         }).catch(() => {});
       }
     }
@@ -132,7 +189,7 @@ export async function POST(request: Request) {
       if (claimError || !claimed || claimed.length === 0) continue;
 
       hits.push({ symbol: row.symbol, level, price });
-      await announce(request, row, level, price);
+      await announce(supabase, user.id, row, level, price);
       if (accountId) {
         await logToJournal(supabase, accountId, row, level, price, pnlUsd, pnlPct).catch(() => {});
       }
@@ -143,46 +200,11 @@ export async function POST(request: Request) {
 }
 
 /**
- * Fetch MEXC last prices for the symbols we track, keyed by upper-case symbol.
- *
- * Uses the app's own cached route (see /api/mexc/futures) so this shares the
- * upstream 5s cache with the trades page rather than hammering the exchange.
- * Returns null when the exchange could not be read.
- */
-async function fetchPrices(
-  request: Request
-): Promise<Record<string, number> | null> {
-  try {
-    const url = new URL("/api/mexc/futures", new URL(request.url).origin);
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: { cookie: request.headers.get("cookie") ?? "" },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) return null;
-
-    const json = (await res.json()) as {
-      tickers?: { symbol: string; lastPrice: number }[];
-    };
-    const map: Record<string, number> = {};
-    for (const t of json.tickers ?? []) {
-      if (typeof t.lastPrice === "number") map[t.symbol.toUpperCase()] = t.lastPrice;
-    }
-    return map;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Notify the user that a plan level was hit, naming which one it was.
- *
- * Delegates to the existing /api/alerts/fire dispatcher so in-app, Discord and
- * desktop handling stays in one place. The caller's cookie is forwarded so the
- * inner route authenticates as the same user.
+ * Notify the user directly via in-app DB and external channels (Discord, Telegram, Desktop).
  */
 async function announce(
-  request: Request,
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
   row: TradeAlert,
   level: HitLevel,
   price: number
@@ -192,21 +214,13 @@ async function announce(
   const label = levelLabel(level);
 
   try {
-    const url = new URL("/api/alerts/fire", new URL(request.url).origin);
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        cookie: request.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({
-        type: "sl_tp_hit",
-        title: `${sym} hit ${level === "sl" ? "SL" : "TP"}`,
-        message:
-          `Last price ${price} reached your ${label.toLowerCase()} at ${levelPrice}.` +
-          (row.entry_price != null ? ` Entry was ${row.entry_price}.` : ""),
-        link: "/trades",
-      }),
+    await dispatchAlertNotification(supabase, userId, {
+      type: "trade_alert",
+      title: `${sym} hit ${level === "sl" ? "SL" : "TP"}`,
+      message:
+        `Last price ${price} reached your ${label.toLowerCase()} at ${levelPrice}.` +
+        (row.entry_price != null ? ` Entry was ${row.entry_price}.` : ""),
+      link: "/trades",
     });
   } catch {
     // The hit is still recorded and journaled even if notification fails.
@@ -242,12 +256,7 @@ async function resolveAccountId(
 }
 
 /**
- * Write the hit plan into the Journal as a new OPEN trade.
- *
- * Size is derived exactly as the /trades page derives it — notional divided by
- * the entry — because trade_alerts stores margin + leverage rather than a
- * position size. The exit price is intentionally left null so the row starts
- * open and is closed by hand once the real exit is known.
+ * Write the hit plan into the Journal as a new CLOSED trade with realized PnL.
  */
 async function logToJournal(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -263,8 +272,6 @@ async function logToJournal(
   const size = entry > 0 ? ((row.margin_usd ?? 1) * leverage) / entry : 0;
   const nowIso = new Date().toISOString();
 
-  // `direction` shares the long/short vocabulary of the trades table and is
-  // derived from the trigger direction, matching sideForTrigger().
   const direction = sideForTrigger(row.trigger_direction, row);
 
   await createTrade(supabase, {

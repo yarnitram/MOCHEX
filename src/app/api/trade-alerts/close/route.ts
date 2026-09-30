@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createTrade } from "@/lib/trade-ops";
 import { calculateTradePnl } from "@/lib/trade-calc";
 import { sideForTrigger } from "@/lib/types";
+import { dispatchAlertNotification } from "@/lib/notification-dispatch";
 
 export const dynamic = "force-dynamic";
 
@@ -182,20 +183,12 @@ export async function POST(request: Request) {
           ).toFixed(2)}%)`
         : "";
 
-    const url = new URL("/api/alerts/fire", new URL(request.url).origin);
-    await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        cookie: request.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({
-        type: "sl_tp_hit",
-        title: `${sym} ${reasonTitle}`,
-        message: `Trade closed at ${exitPrice}${pnlStr}.`,
-        link: "/trades",
-      }),
-    });
+    await dispatchAlertNotification(supabase, user.id, {
+      type: "trade_alert",
+      title: `${sym} ${reasonTitle}`,
+      message: `Trade closed at ${exitPrice}${pnlStr}.`,
+      link: "/trades",
+    }).catch(() => {});
   } catch {
     /* Best effort */
   }

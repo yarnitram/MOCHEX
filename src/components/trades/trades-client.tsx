@@ -12,6 +12,8 @@ import { useLivePrices, formatLastRefreshed } from "./use-live-prices";
 import { PositionCalculatorModal } from "@/components/calculator/position-calculator-modal";
 import { ChartModal } from "@/components/charts/chart-modal";
 import { ImageLightboxModal } from "@/components/ui/image-lightbox-modal";
+import { playTpSound, playSlSound } from "@/lib/audio";
+import { detectHits } from "@/lib/sl-tp";
 
 function CameraIcon({ className = "w-3 h-3" }: { className?: string }) {
   return (
@@ -368,10 +370,32 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [colsOpen]);
 
+  const isCheckingRef = useRef(false);
+  const checkedHitsRef = useRef<Set<string>>(new Set());
+
   // Poll for active alert updates & TP/SL checks
   const refreshAllAlerts = async () => {
+    if (isCheckingRef.current) return;
+    isCheckingRef.current = true;
     try {
-      await fetch("/api/trade-alerts/check", { method: "POST" }).catch(() => {});
+      const checkRes = await fetch("/api/trade-alerts/check", { method: "POST" });
+      if (checkRes.ok) {
+        const checkData = (await checkRes.json()) as {
+          ok?: boolean;
+          hits?: { symbol: string; level: "sl" | "tp"; price: number }[];
+        };
+        if (Array.isArray(checkData.hits) && checkData.hits.length > 0) {
+          const firstHit = checkData.hits[0];
+          if (firstHit.level === "tp") {
+            playTpSound();
+          } else {
+            playSlSound();
+          }
+          const cleanCoin = cleanSymbol(firstHit.symbol);
+          const hitLabel = firstHit.level === "tp" ? "Take-Profit (TP)" : "Stop-Loss (SL)";
+          setNotice(`🎯 ${cleanCoin} reached ${hitLabel} at ${firstHit.price}! Position closed.`);
+        }
+      }
       const res = await fetch("/api/trade-alerts");
       if (!res.ok) return;
       const data = await res.json();
@@ -380,8 +404,37 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
       }
     } catch {
       /* ignore */
+    } finally {
+      isCheckingRef.current = false;
     }
   };
+
+  // Proactive crossing check: when live prices update, check if any active alert crossed SL or TP
+  useEffect(() => {
+    if (activeAlerts.length === 0 || !live) return;
+    if (isCheckingRef.current) return;
+
+    let hasHit = false;
+    for (const a of activeAlerts) {
+      const symUpper = a.symbol.toUpperCase();
+      const clean = symUpper.replace(/_USDT$/i, "");
+      const p = live[symUpper] ?? live[clean] ?? live[`${clean}_USDT`];
+      if (p == null || p <= 0) continue;
+
+      const hits = detectHits(a, p);
+      if (hits.length > 0) {
+        const hitKey = `${a.id}:${hits[0].level}`;
+        if (!checkedHitsRef.current.has(hitKey)) {
+          checkedHitsRef.current.add(hitKey);
+          hasHit = true;
+        }
+      }
+    }
+
+    if (hasHit) {
+      refreshAllAlerts();
+    }
+  }, [live, activeAlerts]);
 
   useEffect(() => {
     let cancelled = false;
@@ -405,7 +458,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
 
   useEffect(() => {
     if (!notice) return;
-    const t = setTimeout(() => setNotice(null), 4000);
+    const t = setTimeout(() => setNotice(null), 6000);
     return () => clearTimeout(t);
   }, [notice]);
 
@@ -1119,7 +1172,20 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
         />
       )}
 
-      {notice && <p className="text-xs text-muted">{notice}</p>}
+      {notice && (
+        <div className="flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/10 px-3.5 py-2.5 text-xs font-medium text-accent shadow-sm animate-in fade-in duration-200">
+          <span>🔔</span>
+          <span className="flex-1 font-semibold">{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="text-muted hover:text-white transition-colors px-1"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <p className="text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
