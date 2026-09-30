@@ -33,7 +33,10 @@ export function LoginForm() {
     setError(null);
     setGoogleLoading(true);
     const supabase = createClient();
-    const origin = window.location.origin;
+    let origin = window.location.origin;
+    if (origin.includes("0.0.0.0")) {
+      origin = origin.replace("0.0.0.0", "localhost");
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {

@@ -11,9 +11,13 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
  * manager without the proxy-opting concerns of the app pages.
  */
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/journal";
+  const requestUrl = new URL(request.url);
+  let origin = requestUrl.origin;
+  if (origin.includes("0.0.0.0")) {
+    origin = origin.replace("0.0.0.0", "localhost");
+  }
+  const code = requestUrl.searchParams.get("code");
+  const next = requestUrl.searchParams.get("next") ?? "/journal";
 
   if (code) {
     const cookieStore = await cookies();
