@@ -65,8 +65,8 @@ export async function PUT(request: Request, { params }: Ctx) {
           : undefined,
     };
 
-    await updateTrade(supabase, id, input);
-    return NextResponse.json({ ok: true });
+    const { leveragePersisted } = await updateTrade(supabase, id, input);
+    return NextResponse.json({ ok: true, leveragePersisted });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

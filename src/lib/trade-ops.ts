@@ -50,13 +50,41 @@ export async function deleteTrade(
 }
 
 /**
+ * True when Postgres/PostgREST rejected a write because an optional column is
+ * not present yet (i.e. its migration has not been applied to this project).
+ * PostgREST reports unknown columns as PGRST204, raw Postgres as 42703.
+ *
+ * Deliberately permissive: the callers only use this to retry once with the
+ * optional column removed, so a false positive still fails loudly on retry if
+ * some other column was the real problem. A false negative, by contrast, would
+ * turn a graceful degrade into a hard error.
+ */
+function isMissingColumnError(
+  error: { message?: string; code?: string; details?: string } | null,
+  column: string
+): boolean {
+  if (!error) return false;
+  const col = column.toLowerCase();
+  const text = `${error.message ?? ""} ${error.details ?? ""}`.toLowerCase();
+  if (text.includes(col)) return true;
+  if (error.code === "PGRST204" || error.code === "42703") return true;
+  return text.includes("does not exist") && text.includes(col);
+}
+
+/** Shown when a leverage write had to be dropped because the column is absent. */
+export const MISSING_LEVERAGE_COLUMN =
+  "The trades.leverage column is missing in this database. Run supabase/migrations/032_trade_leverage.sql in the Supabase SQL editor, then re-save the trade to apply its leverage.";
+
+/**
  * Create a trade from form input.
  * Computes status from presence of exit price; writes tags + notes.
+ * `leveragePersisted: false` means the leverage could not be written because
+ * the trades.leverage column is absent (see MISSING_LEVERAGE_COLUMN).
  */
 export async function createTrade(
   supabase: ServerSupabase,
   input: TradeInput
-): Promise<{ id: string }> {
+): Promise<{ id: string; leveragePersisted: boolean }> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -64,6 +92,11 @@ export async function createTrade(
 
   const hasExit = input.exit_price != null && !Number.isNaN(input.exit_price);
   const status = hasExit ? "closed" : "open";
+
+  // Only send leverage when requested; tracks whether the write actually landed.
+  const leverageRequested =
+    input.leverage != null && input.leverage > 0 ? input.leverage : null;
+  let leveragePersisted = true;
 
   const insertPayload: Record<string, unknown> = {
     account_id: input.account_id,
@@ -78,8 +111,8 @@ export async function createTrade(
     exit_time: hasExit ? input.exit_time ?? null : null,
     status,
   };
-  if (input.leverage != null && input.leverage > 0) {
-    insertPayload.leverage = input.leverage;
+  if (leverageRequested != null) {
+    insertPayload.leverage = leverageRequested;
   }
 
   let { data: trade, error } = await supabase
@@ -88,8 +121,15 @@ export async function createTrade(
     .select("id")
     .single();
 
-  // Retry fallback if leverage column does not exist yet in trades table
-  if (error && (error.message.includes("leverage") || error.code === "PGRST204" || error.code === "42703")) {
+  // Pre-migration databases have no trades.leverage column. Retry without it so
+  // the trade still saves, but surface the drop instead of swallowing it.
+  if (
+    leverageRequested != null &&
+    error &&
+    isMissingColumnError(error, "leverage")
+  ) {
+    console.warn(`[trade-ops] createTrade: ${MISSING_LEVERAGE_COLUMN}`);
+    leveragePersisted = false;
     delete insertPayload.leverage;
     const retry = await supabase
       .from("trades")
@@ -149,7 +189,7 @@ export async function createTrade(
     }
   }
 
-  return { id: tradeId };
+  return { id: tradeId, leveragePersisted };
 }
 
 /**
@@ -160,7 +200,7 @@ export async function updateTrade(
   supabase: ServerSupabase,
   tradeId: string,
   input: TradeInput
-): Promise<void> {
+): Promise<{ leveragePersisted: boolean }> {
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -185,13 +225,21 @@ export async function updateTrade(
     updatePayload.leverage = input.leverage;
   }
 
+  let leveragePersisted = true;
   let { error } = await supabase
     .from("trades")
     .update(updatePayload)
     .eq("id", tradeId);
 
-  // Retry fallback if leverage column does not exist yet
-  if (error && (error.message.includes("leverage") || error.code === "PGRST204" || error.code === "42703")) {
+  // Pre-migration databases have no trades.leverage column. Retry without it so
+  // the rest of the edit still saves, but surface the drop instead of hiding it.
+  if (
+    updatePayload.leverage !== undefined &&
+    error &&
+    isMissingColumnError(error, "leverage")
+  ) {
+    console.warn(`[trade-ops] updateTrade: ${MISSING_LEVERAGE_COLUMN}`);
+    leveragePersisted = false;
     delete updatePayload.leverage;
     const retry = await supabase
       .from("trades")
@@ -220,7 +268,16 @@ export async function updateTrade(
 
   // Notes: upsert
   const thesis = input.pre_trade_thesis?.trim();
-  const review = input.post_trade_review?.trim();
+  let review = input.post_trade_review?.trim();
+  if (!leveragePersisted && input.leverage != null && input.leverage > 0) {
+    if (!review) {
+      review = `Leverage: ${input.leverage}x`;
+    } else if (review.match(/(?:Leverage:\s*|·\s*)([0-9.]+)\s*x/i)) {
+      review = review.replace(/(?:Leverage:\s*|·\s*)([0-9.]+)\s*x/i, `Leverage: ${input.leverage}x`);
+    } else {
+      review = `${review}\nLeverage: ${input.leverage}x`;
+    }
+  }
   const hasNotes =
     thesis ||
     review ||
@@ -261,6 +318,8 @@ export async function updateTrade(
     // Explicitly remove notes (keep the trade).
     await supabase.from("trade_notes").delete().eq("trade_id", tradeId);
   }
+
+  return { leveragePersisted };
 }
 
 /** Validate a fee/size/numeric so DB numeric columns don't reject stringy input. */

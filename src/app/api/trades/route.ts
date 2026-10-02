@@ -81,8 +81,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "symbol and entry_time required" }, { status: 400 });
     }
 
-    const { id } = await createTrade(supabase, input);
-    return NextResponse.json({ id }, { status: 201 });
+    const { id, leveragePersisted } = await createTrade(supabase, input);
+    return NextResponse.json({ id, leveragePersisted }, { status: 201 });
   } catch (err) {
     return NextResponse.json(
       { error: (err as Error).message },

@@ -498,6 +498,15 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
             ))}
           </div>
 
+          <p className="text-[10px] leading-relaxed text-muted/80 -mt-1">
+            Leverage scales <span className="text-text font-semibold">ROE %</span> and
+            implied margin only. Dollar P&amp;L comes from{" "}
+            <span className="font-mono text-text">size × (exit − entry)</span>, so it
+            stays the same when you change leverage — adjust{" "}
+            <span className="text-text font-semibold">Position Size</span> to change
+            the dollar figure.
+          </p>
+
           {/* Live Auto-Calculations Preview Box */}
           <div className="p-3 rounded-xl bg-panel-soft/60 border border-line flex flex-col gap-2 mt-1">
             <div className="flex items-center justify-between">

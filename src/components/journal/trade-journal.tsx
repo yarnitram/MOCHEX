@@ -39,6 +39,8 @@ export function TradeJournal({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [chartTrade, setChartTrade] = useState<TradeWithExtras | null>(null);
+  // Set when a save could not persist leverage (e.g. missing DB column).
+  const [leverageWarning, setLeverageWarning] = useState<string | null>(null);
 
   // Initialize and load archived journal trades from local cache and remote API
   useEffect(() => {
@@ -106,7 +108,7 @@ export function TradeJournal({
   }, [activeAccount]);
 
   const mutation = useCallback(
-    async (url: string, method: string, body?: unknown): Promise<boolean> => {
+    async (url: string, method: string, body?: unknown): Promise<Record<string, unknown>> => {
       const res = await fetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
@@ -116,20 +118,36 @@ export function TradeJournal({
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Request failed");
       }
-      return true;
+      return (await res.json().catch(() => ({}))) as Record<string, unknown>;
     },
     []
   );
 
   const handleSave = useCallback(
     async (values: unknown, id?: string) => {
-      const body = { account_id: activeAccount!.id, ...(values as object) };
-      if (id) {
-        await mutation(`/api/trades/${id}`, "PUT", body);
-      } else {
-        await mutation("/api/trades", "POST", body);
-      }
+      const submitted = values as Record<string, unknown>;
+      const body = { account_id: activeAccount!.id, ...submitted };
+      const result = id
+        ? await mutation(`/api/trades/${id}`, "PUT", body)
+        : await mutation("/api/trades", "POST", body);
       await Promise.all([refresh(), refreshTags()]);
+
+      // The server drops leverage instead of failing when the column is missing
+      // (pre-migration DB). Warn so the value is not silently lost.
+      const requestedLeverage = Number(submitted.leverage);
+      if (
+        result.leveragePersisted === false &&
+        Number.isFinite(requestedLeverage) &&
+        requestedLeverage > 1
+      ) {
+        setLeverageWarning(
+          `Your trade saved, but its ${requestedLeverage}x leverage could not be stored. ` +
+            "Run supabase/migrations/032_trade_leverage.sql in the Supabase SQL editor, then re-edit this trade."
+        );
+      } else {
+        setLeverageWarning(null);
+      }
+
       setFormOpen(false);
       setEditing(null);
     },
@@ -383,12 +401,14 @@ export function TradeJournal({
 
   const openAdd = useCallback(() => {
     setEditing(null);
+    setLeverageWarning(null);
     setFormOpen(true);
   }, []);
 
   const openEdit = useCallback((t: TradeWithExtras) => {
     setSelected(null);
     setEditing(t);
+    setLeverageWarning(null);
     setFormOpen(true);
   }, []);
 
@@ -465,6 +485,25 @@ export function TradeJournal({
           <EquityCurveChart closedTrades={closedTradeAlerts} />
         </div>
       </section>
+
+      {leverageWarning && (
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start justify-between gap-3">
+          <span className="leading-relaxed">
+            <span className="font-semibold font-mono uppercase tracking-wider mr-2">
+              Schema
+            </span>
+            {leverageWarning}
+          </span>
+          <button
+            type="button"
+            onClick={() => setLeverageWarning(null)}
+            className="text-amber-300/70 hover:text-amber-200 p-0.5 shrink-0 cursor-pointer"
+            aria-label="Dismiss leverage warning"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       <section aria-labelledby="ledger-heading">
         {/* Ledger Navigation Tabs */}
