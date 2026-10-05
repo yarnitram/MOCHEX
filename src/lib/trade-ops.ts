@@ -108,7 +108,7 @@ export async function createTrade(
     stop_price: input.stop_price ?? null,
     fees: input.fees ?? 0,
     entry_time: input.entry_time,
-    exit_time: hasExit ? input.exit_time ?? null : null,
+    exit_time: hasExit ? input.exit_time ?? new Date().toISOString() : null,
     status,
   };
   if (leverageRequested != null) {
@@ -218,7 +218,7 @@ export async function updateTrade(
     stop_price: input.stop_price ?? null,
     fees: input.fees ?? 0,
     entry_time: input.entry_time,
-    exit_time: hasExit ? input.exit_time ?? null : null,
+    exit_time: hasExit ? input.exit_time ?? new Date().toISOString() : null,
     status,
   };
   if (input.leverage !== undefined) {

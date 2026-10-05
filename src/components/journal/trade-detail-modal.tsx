@@ -87,10 +87,11 @@ export function TradeDetailModal({ trade, onClose, onDelete, onEdit, onChart }: 
           </div>
 
           {/* Stat grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {stat("Entry", fmtPx(trade.entry_price))}
-            {stat("Exit", trade.exit_price != null ? fmtPx(trade.exit_price) : "—")}
+            {stat("Exit", trade.exit_price != null ? fmtPx(trade.exit_price) : "— (Open)")}
             {stat("Size", trade.size)}
+            {stat("Position Value", money(notional))}
             {stat("Leverage", lev > 1 ? `${lev}x` : "1x (Spot)")}
             {stat("Margin", money(margin))}
             {stat("Stop", trade.stop_price != null ? fmtPx(trade.stop_price) : "—")}

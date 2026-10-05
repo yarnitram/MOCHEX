@@ -51,10 +51,29 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   const [exitPrice, setExitPrice] = useState(
     trade?.exit_price != null ? String(trade.exit_price) : ""
   );
+  const [exitTime, setExitTime] = useState(
+    toLocalInput(trade?.exit_time ?? null)
+  );
   const [stopPrice, setStopPrice] = useState(
     trade?.stop_price != null ? String(trade.stop_price) : ""
   );
   const [fees, setFees] = useState(trade ? String(trade.fees) : "0");
+  const initialMargin = useMemo(() => {
+    if (!trade || !trade.entry_price || !trade.size) return "";
+    const notional = Number(trade.entry_price) * Number(trade.size);
+    const lev = trade.leverage != null && trade.leverage > 0 ? trade.leverage : 1;
+    return (notional / lev).toFixed(2);
+  }, [trade]);
+  const [marginInput, setMarginInput] = useState<string>(initialMargin);
+  const [unitMode, setUnitMode] = useState<"cost" | "amount">(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const saved = localStorage.getItem("mochex_trade_unit_mode");
+        if (saved === "cost" || saved === "amount") return saved;
+      }
+    } catch {}
+    return "cost";
+  });
   const [entryTime, setEntryTime] = useState(
     toLocalInput(trade?.entry_time ?? null)
   );
@@ -86,7 +105,9 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
 
   // Position Size Calculator helper state
   const [showSizeCalc, setShowSizeCalc] = useState(false);
+  const [sizeCalcMode, setSizeCalcMode] = useState<"risk" | "margin">("risk");
   const [riskBudget, setRiskBudget] = useState("50"); // default $50 risk budget
+  const [targetMargin, setTargetMargin] = useState("100"); // default $100 target margin
 
   // Numerical values derived from inputs for live auto-calculations
   const numEntry = Number(entryPrice);
@@ -157,6 +178,106 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
     return budget / riskPerUnit;
   }, [riskBudget, riskPerUnit]);
 
+  // Calculated size from target margin budget ($)
+  const calculatedSizeFromMargin = useMemo(() => {
+    const margin = Number(targetMargin);
+    if (!Number.isFinite(margin) || margin <= 0 || !validEntry) {
+      return null;
+    }
+    const lev = validLeverage ? numLeverage : 1;
+    // Margin = (Entry * Size) / Leverage  =>  Size = (Margin * Leverage) / Entry
+    return (margin * lev) / numEntry;
+  }, [targetMargin, validEntry, numEntry, validLeverage, numLeverage]);
+
+  // Directional warnings
+  const stopWarning = useMemo(() => {
+    if (!validEntry || numStop == null) return null;
+    if (direction === "long" && numStop >= numEntry) {
+      return "For a LONG position, Stop Price should be BELOW Entry Price.";
+    }
+    if (direction === "short" && numStop <= numEntry) {
+      return "For a SHORT position, Stop Price should be ABOVE Entry Price.";
+    }
+    return null;
+  }, [validEntry, numStop, numEntry, direction]);
+
+  const exitWarning = useMemo(() => {
+    if (!validEntry || numExit == null) return null;
+    if (direction === "long" && numExit <= numEntry) {
+      return "Notice: Exit price is below entry (realized loss).";
+    }
+    if (direction === "short" && numExit >= numEntry) {
+      return "Notice: Exit price is above entry (realized loss).";
+    }
+    return null;
+  }, [validEntry, numExit, numEntry, direction]);
+
+  function handleSizeChange(val: string) {
+    setSize(val);
+    const numS = Number(val);
+    if (Number.isFinite(numS) && numS > 0 && validEntry) {
+      const lev = validLeverage ? numLeverage : 1;
+      const computedMargin = (numEntry * numS) / lev;
+      setMarginInput(computedMargin.toFixed(2));
+    } else if (val.trim() === "") {
+      setMarginInput("");
+    }
+  }
+
+  function handleMarginChange(val: string) {
+    setMarginInput(val);
+    const numMargin = Number(val);
+    if (Number.isFinite(numMargin) && numMargin > 0 && validEntry) {
+      const lev = validLeverage ? numLeverage : 1;
+      const computedSize = (numMargin * lev) / numEntry;
+      const formatted =
+        computedSize > 1
+          ? computedSize.toFixed(4).replace(/\.?0+$/, "")
+          : computedSize.toPrecision(4);
+      setSize(formatted);
+    }
+  }
+
+  function handleEntryPriceChange(val: string) {
+    setEntryPrice(val);
+    const numE = Number(val);
+    if (Number.isFinite(numE) && numE > 0 && validSize) {
+      const lev = validLeverage ? numLeverage : 1;
+      const computedMargin = (numE * numSize) / lev;
+      setMarginInput(computedMargin.toFixed(2));
+    }
+  }
+
+  function handleUnitModeSwitch(mode: "cost" | "amount") {
+    setUnitMode(mode);
+    try {
+      localStorage.setItem("mochex_trade_unit_mode", mode);
+    } catch {}
+  }
+
+  function handleLeverageChange(val: string) {
+    setLeverage(val);
+    const numLev = val.trim() !== "" ? Math.max(1, Number(val)) : 1;
+    if (unitMode === "cost") {
+      // In MEXC Order by Cost: Cost (USDT) is fixed, Position Size scales with leverage!
+      const numMargin = Number(marginInput);
+      if (Number.isFinite(numMargin) && numMargin > 0 && validEntry) {
+        const computedSize = (numMargin * numLev) / numEntry;
+        const formatted =
+          computedSize > 1
+            ? computedSize.toFixed(4).replace(/\.?0+$/, "")
+            : computedSize.toPrecision(4);
+        setSize(formatted);
+      }
+    } else {
+      // In Order by Amount: Size (Units) is fixed, Margin scales!
+      if (validEntry && validSize) {
+        const computedMargin = (numEntry * numSize) / numLev;
+        setMarginInput(computedMargin.toFixed(2));
+      }
+    }
+  }
+
   // Quick R target application
   function applyTargetR(rMultiplier: number) {
     if (!validEntry || riskPerUnit == null || riskPerUnit <= 0) return;
@@ -164,7 +285,14 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
       direction === "long"
         ? numEntry + rMultiplier * riskPerUnit
         : numEntry - rMultiplier * riskPerUnit;
-    setExitPrice(String(targetExit));
+    const entryDecimals = entryPrice.includes(".")
+      ? entryPrice.split(".")[1]?.length ?? 2
+      : 2;
+    const decimals = Math.min(8, Math.max(2, entryDecimals));
+    setExitPrice(targetExit.toFixed(decimals).replace(/\.?0+$/, ""));
+    if (!exitTime) {
+      setExitTime(toLocalInput(new Date().toISOString()));
+    }
   }
 
   // Sync state if editing trade changes
@@ -181,8 +309,16 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
       setLeverage(trade.leverage != null && trade.leverage > 0 ? String(trade.leverage) : "1");
       setEntryPrice(String(trade.entry_price));
       setExitPrice(trade.exit_price != null ? String(trade.exit_price) : "");
+      setExitTime(toLocalInput(trade.exit_time ?? null));
       setStopPrice(trade.stop_price != null ? String(trade.stop_price) : "");
       setFees(String(trade.fees));
+      if (trade.entry_price && trade.size) {
+        const notional = Number(trade.entry_price) * Number(trade.size);
+        const lev = trade.leverage != null && trade.leverage > 0 ? trade.leverage : 1;
+        setMarginInput((notional / lev).toFixed(2));
+      } else {
+        setMarginInput("");
+      }
       setEntryTime(toLocalInput(trade.entry_time));
       setThesis(trade.notes?.pre_trade_thesis ?? "");
       setReview(trade.notes?.post_trade_review ?? "");
@@ -198,10 +334,21 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
   function handleSelectCoin(coin: SelectedCoin) {
     setSelectedCoin(coin);
     setSymbol(coin.symbol);
-    if (!entryPrice && coin.lastPrice) {
+    if ((!entryPrice || !editing) && coin.lastPrice) {
       setEntryPrice(String(coin.lastPrice));
+      if (validSize) {
+        const lev = validLeverage ? numLeverage : 1;
+        setMarginInput(((coin.lastPrice * numSize) / lev).toFixed(2));
+      }
     }
     setError(null);
+  }
+
+  function handleExitPriceChange(val: string) {
+    setExitPrice(val);
+    if (val.trim() !== "" && !exitTime) {
+      setExitTime(toLocalInput(new Date().toISOString()));
+    }
   }
 
   function handleClearCoin() {
@@ -241,12 +388,23 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
     const entry = num(entryPrice);
     const exit = num(exitPrice);
 
+    let finalSize = num(size);
+    if ((finalSize == null || finalSize <= 0) && marginInput.trim() !== "" && entry != null && entry > 0) {
+      const lev = validLeverage ? numLeverage : 1;
+      finalSize = (Number(marginInput) * lev) / entry;
+      setSize(String(finalSize));
+    }
+
     if (!symbol.trim()) {
       setError("Please select or enter a coin symbol.");
       return;
     }
-    if (size.trim() === "" || entry == null || Number.isNaN(entry) || entry <= 0) {
-      setError("Valid size and entry price are required.");
+    if ((finalSize == null || finalSize <= 0) && (marginInput.trim() === "" || Number(marginInput) <= 0)) {
+      setError("Valid Position Size (Units) or Cost (USDT) is required.");
+      return;
+    }
+    if (entry == null || Number.isNaN(entry) || entry <= 0) {
+      setError("Valid entry price is required.");
       return;
     }
     if (!entryTime) {
@@ -260,10 +418,16 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
         {
           symbol: symbol.toUpperCase(),
           direction,
-          size: num(size),
+          size: finalSize,
           leverage: validLeverage ? numLeverage : 1,
           entry_price: entry,
           exit_price: exit,
+          exit_time:
+            exit != null
+              ? exitTime
+                ? new Date(exitTime).toISOString()
+                : new Date().toISOString()
+              : null,
           stop_price: num(stopPrice),
           fees: num(fees) ?? 0,
           entry_time: new Date(entryTime).toISOString(),
@@ -362,31 +526,129 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
 
         {/* 3. Execution Levels: Size, Entry Time, Entry Price, Leverage */}
         <div className="p-3.5 rounded-xl bg-panel/40 border border-line flex flex-col gap-3">
-          <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
-            Execution Details
-          </span>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <span className="text-[10px] font-mono uppercase text-muted tracking-wider font-semibold">
+              Execution Details
+            </span>
+            {/* MEXC Futures Unit Mode Setting */}
+            <div className="flex items-center gap-1 bg-panel border border-line p-0.5 rounded-lg text-[10px]">
+              <button
+                type="button"
+                onClick={() => handleUnitModeSwitch("cost")}
+                className={`px-2.5 py-0.5 rounded-md font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                  unitMode === "cost"
+                    ? "bg-accent/20 text-accent font-semibold border border-accent/30 shadow-xs"
+                    : "text-muted hover:text-text border border-transparent"
+                }`}
+                title="MEXC Futures Unit Setting: Order by Cost (USDT)"
+              >
+                <span>⚡ Order by Cost (USDT)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleUnitModeSwitch("amount")}
+                className={`px-2.5 py-0.5 rounded-md font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                  unitMode === "amount"
+                    ? "bg-accent/20 text-accent font-semibold border border-accent/30 shadow-xs"
+                    : "text-muted hover:text-text border border-transparent"
+                }`}
+                title="MEXC Futures Unit Setting: Order by Amount (Units)"
+              >
+                <span>Order by Amount (Units)</span>
+              </button>
+            </div>
+          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <label className="flex flex-col gap-1 text-xs text-muted">
-              <span>Position Size (Units) <span className="text-loss">*</span></span>
-              <input
-                type="number"
-                step="any"
-                className={inputCls}
-                value={size}
-                onChange={(e) => setSize(e.target.value)}
-                placeholder="e.g. 100"
-                required
-              />
-            </label>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            {unitMode === "cost" ? (
+              <>
+                {/* 1. Cost (USDT) as Primary Input */}
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-text">Cost (USDT) <span className="text-loss">*</span></span>
+                    <span className="text-[10px] text-accent font-mono font-medium">MEXC Margin</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-accent font-mono text-xs font-semibold">$</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={`${inputCls} pl-6 border-accent/40 focus:border-accent`}
+                      value={marginInput}
+                      onChange={(e) => handleMarginChange(e.target.value)}
+                      placeholder="e.g. 50"
+                      required
+                    />
+                  </div>
+                </label>
 
+                {/* 2. Position Size (Units) derived / secondary */}
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  <div className="flex items-center justify-between">
+                    <span>Position Size (Units)</span>
+                    <span className="text-[10px] text-muted/60 font-mono">auto-computed</span>
+                  </div>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputCls}
+                    value={size}
+                    onChange={(e) => handleSizeChange(e.target.value)}
+                    placeholder="e.g. 100"
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                {/* 1. Position Size (Units) as Primary Input */}
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  <span>Position Size (Units) <span className="text-loss">*</span></span>
+                  <input
+                    type="number"
+                    step="any"
+                    className={inputCls}
+                    value={size}
+                    onChange={(e) => handleSizeChange(e.target.value)}
+                    placeholder="e.g. 100"
+                    required
+                  />
+                </label>
+
+                {/* 2. Cost / Margin ($) */}
+                <label className="flex flex-col gap-1 text-xs text-muted">
+                  <div className="flex items-center justify-between">
+                    <span>Cost / Margin ($)</span>
+                    <span className="text-[10px] text-accent/80 font-mono">2-way sync</span>
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">$</span>
+                    <input
+                      type="number"
+                      step="any"
+                      className={`${inputCls} pl-6`}
+                      value={marginInput}
+                      onChange={(e) => handleMarginChange(e.target.value)}
+                      placeholder="e.g. 50"
+                    />
+                  </div>
+                </label>
+              </>
+            )}
+
+            {/* 3. Entry Price */}
             <label className="flex flex-col gap-1 text-xs text-muted">
               <div className="flex items-center justify-between">
                 <span>Entry Price <span className="text-loss">*</span></span>
                 {lastPx != null && (
                   <button
                     type="button"
-                    onClick={() => setEntryPrice(String(lastPx))}
+                    onClick={() => {
+                      setEntryPrice(String(lastPx));
+                      if (validSize) {
+                        const lev = validLeverage ? numLeverage : 1;
+                        setMarginInput(((lastPx * numSize) / lev).toFixed(2));
+                      }
+                    }}
                     className="text-[10px] font-mono text-accent hover:underline cursor-pointer"
                   >
                     Use Last ({fmtPx(lastPx)})
@@ -398,12 +660,13 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 step="any"
                 className={inputCls}
                 value={entryPrice}
-                onChange={(e) => setEntryPrice(e.target.value)}
+                onChange={(e) => handleEntryPriceChange(e.target.value)}
                 placeholder="0.00"
                 required
               />
             </label>
 
+            {/* 4. Entry Timestamp */}
             <label className="flex flex-col gap-1 text-xs text-muted">
               <span>Entry Timestamp <span className="text-loss">*</span></span>
               <input
@@ -427,7 +690,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                 step="any"
                 className={inputCls}
                 value={exitPrice}
-                onChange={(e) => setExitPrice(e.target.value)}
+                onChange={(e) => handleExitPriceChange(e.target.value)}
                 placeholder="Optional"
               />
             </label>
@@ -471,13 +734,48 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
                   step="1"
                   className={inputCls}
                   value={leverage}
-                  onChange={(e) => setLeverage(e.target.value)}
+                  onChange={(e) => handleLeverageChange(e.target.value)}
                   placeholder="1"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted font-mono text-xs">x</span>
               </div>
             </label>
           </div>
+
+          {exitPrice.trim() !== "" && (
+            <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-panel-soft/50 border border-line">
+              <div className="flex items-center gap-2 text-xs text-muted flex-wrap">
+                <span className="font-mono text-[10px] uppercase font-semibold text-text">Exit Timestamp:</span>
+                <input
+                  type="datetime-local"
+                  className={`${inputCls} py-1 text-xs w-auto`}
+                  value={exitTime}
+                  onChange={(e) => setExitTime(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setExitTime(toLocalInput(new Date().toISOString()))}
+                  className="text-[10px] font-mono text-accent hover:underline cursor-pointer"
+                >
+                  Set Now
+                </button>
+              </div>
+              <span className="text-[10px] text-muted hidden sm:inline">Recorded for analytics &amp; calendar</span>
+            </div>
+          )}
+
+          {stopWarning && (
+            <div className="text-[11px] font-medium text-loss bg-loss/10 border border-loss/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+              <span>⚠️</span>
+              <span>{stopWarning}</span>
+            </div>
+          )}
+          {exitWarning && pnlCalculation && pnlCalculation.net < 0 && (
+            <div className="text-[11px] font-medium text-amber-400 bg-amber-400/10 border border-amber-400/20 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+              <span>ℹ️</span>
+              <span>{exitWarning}</span>
+            </div>
+          )}
 
           {/* Quick Leverage Presets */}
           <div className="flex items-center gap-1.5 text-[11px] text-muted flex-wrap">
@@ -486,7 +784,7 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
               <button
                 key={preset}
                 type="button"
-                onClick={() => setLeverage(String(preset))}
+                onClick={() => handleLeverageChange(String(preset))}
                 className={`px-2 py-0.5 rounded-lg font-mono text-[10px] font-semibold border transition-all cursor-pointer ${
                   leverage === String(preset)
                     ? "bg-accent/20 border-accent text-accent"
@@ -618,45 +916,118 @@ export function TradeFormModal({ trade, tags, onClose, onSave, icons = {} }: Pro
             {/* Expandable Position Size Calculator */}
             {showSizeCalc && (
               <div className="p-2.5 rounded-lg bg-accent/5 border border-accent/20 flex flex-col gap-2 mt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-semibold text-accent">Position Size Calculator</span>
-                  <span className="text-[10px] text-muted">Formula: Risk $ ÷ |Entry − Stop|</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <label className="flex items-center gap-1.5 text-xs text-muted">
-                    <span>Max Risk: $</span>
-                    <input
-                      type="number"
-                      value={riskBudget}
-                      onChange={(e) => setRiskBudget(e.target.value)}
-                      className="w-20 px-2 py-1 rounded bg-panel border border-line text-text font-mono text-xs focus:outline-none focus:border-accent"
-                      placeholder="50"
-                    />
-                  </label>
-                  {calculatedSizeFromRisk != null ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-text font-mono">
-                        = <span className="font-bold text-accent">{calculatedSizeFromRisk > 1 ? calculatedSizeFromRisk.toFixed(2) : calculatedSizeFromRisk.toPrecision(4)}</span> units
-                      </span>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] font-semibold text-accent">Position Size Calculator</span>
+                    <div className="flex rounded-lg bg-panel border border-line p-0.5 text-[10px]">
                       <button
                         type="button"
-                        onClick={() => {
-                          const formatted = calculatedSizeFromRisk > 1
-                            ? calculatedSizeFromRisk.toFixed(2)
-                            : calculatedSizeFromRisk.toPrecision(4);
-                          setSize(formatted);
-                        }}
-                        className="px-2.5 py-1 rounded-md bg-accent text-panel font-bold text-[10px] hover:brightness-110 cursor-pointer transition-all"
+                        onClick={() => setSizeCalcMode("risk")}
+                        className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                          sizeCalcMode === "risk"
+                            ? "bg-accent/20 text-accent font-semibold"
+                            : "text-muted hover:text-text"
+                        }`}
                       >
-                        Apply Size
+                        By Risk $
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSizeCalcMode("margin")}
+                        className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                          sizeCalcMode === "margin"
+                            ? "bg-accent/20 text-accent font-semibold"
+                            : "text-muted hover:text-text"
+                        }`}
+                      >
+                        By Margin $
                       </button>
                     </div>
-                  ) : (
-                    <span className="text-[11px] text-muted italic">
-                      Enter valid entry & stop price above to calculate size
-                    </span>
-                  )}
+                  </div>
+                  <span className="text-[10px] text-muted">
+                    {sizeCalcMode === "risk"
+                      ? "Formula: Risk $ ÷ |Entry − Stop|"
+                      : "Formula: (Margin $ × Leverage) ÷ Entry"}
+                  </span>
                 </div>
+
+                {sizeCalcMode === "risk" ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="flex items-center gap-1.5 text-xs text-muted">
+                      <span>Max Risk: $</span>
+                      <input
+                        type="number"
+                        value={riskBudget}
+                        onChange={(e) => setRiskBudget(e.target.value)}
+                        className="w-20 px-2 py-1 rounded bg-panel border border-line text-text font-mono text-xs focus:outline-none focus:border-accent"
+                        placeholder="50"
+                      />
+                    </label>
+                    {calculatedSizeFromRisk != null ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text font-mono">
+                          = <span className="font-bold text-accent">{calculatedSizeFromRisk > 1 ? calculatedSizeFromRisk.toFixed(2) : calculatedSizeFromRisk.toPrecision(4)}</span> units
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const formatted = calculatedSizeFromRisk > 1
+                              ? calculatedSizeFromRisk.toFixed(2)
+                              : calculatedSizeFromRisk.toPrecision(4);
+                            handleSizeChange(formatted);
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-accent text-panel font-bold text-[10px] hover:brightness-110 cursor-pointer transition-all"
+                        >
+                          Apply Size
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-muted italic">
+                        Enter valid entry & stop price above to calculate size
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <label className="flex items-center gap-1.5 text-xs text-muted">
+                      <span>Target Margin: $</span>
+                      <input
+                        type="number"
+                        value={targetMargin}
+                        onChange={(e) => setTargetMargin(e.target.value)}
+                        className="w-20 px-2 py-1 rounded bg-panel border border-line text-text font-mono text-xs focus:outline-none focus:border-accent"
+                        placeholder="100"
+                      />
+                    </label>
+                    <span className="text-[10px] font-mono text-muted">at {validLeverage ? numLeverage : 1}x</span>
+                    {calculatedSizeFromMargin != null ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-text font-mono">
+                          = <span className="font-bold text-accent">{calculatedSizeFromMargin > 1 ? calculatedSizeFromMargin.toFixed(2) : calculatedSizeFromMargin.toPrecision(4)}</span> units
+                          <span className="text-muted text-[10px] ml-1">
+                            (~${(Number(targetMargin) * (validLeverage ? numLeverage : 1)).toFixed(2)} position)
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const formatted = calculatedSizeFromMargin > 1
+                              ? calculatedSizeFromMargin.toFixed(2)
+                              : calculatedSizeFromMargin.toPrecision(4);
+                            handleSizeChange(formatted);
+                          }}
+                          className="px-2.5 py-1 rounded-md bg-accent text-panel font-bold text-[10px] hover:brightness-110 cursor-pointer transition-all"
+                        >
+                          Apply Size
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-muted italic">
+                        Enter valid entry price above to calculate size from margin
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
