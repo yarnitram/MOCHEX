@@ -15,9 +15,10 @@ interface Props {
   symbol: string;
   setup?: TradeSetupOverlay | null;
   isPublic?: boolean;
+  maxLeverage?: number | null;
 }
 
-export function ChartModal({ isOpen, onClose, symbol, setup, isPublic = false }: Props) {
+export function ChartModal({ isOpen, onClose, symbol, setup, isPublic = false, maxLeverage }: Props) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -50,6 +51,12 @@ export function ChartModal({ isOpen, onClose, symbol, setup, isPublic = false }:
                 <h3 className="text-lg font-extrabold text-text font-mono">
                   {cleanSym} / USDT
                 </h3>
+                {maxLeverage != null && maxLeverage > 0 && (
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center gap-1">
+                    <span>⚡</span>
+                    <span>{maxLeverage}x</span>
+                  </span>
+                )}
                 {setup?.order_type && (
                   <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-md bg-panel text-text border border-line">
                     {setup.order_type}
@@ -155,6 +162,7 @@ export function ChartModal({ isOpen, onClose, symbol, setup, isPublic = false }:
             setup={setup}
             height={isMaximized ? 700 : 520}
             showOverlayToggle={true}
+            maxLeverage={maxLeverage}
           />
         </div>
       </div>

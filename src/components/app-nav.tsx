@@ -11,6 +11,7 @@ import { TipModal } from "@/components/ui/tip-modal";
 const LINKS = [
   { href: "/watchlist", label: "Watchlist", icon: "🪙" },
   { href: "/trades", label: "Trades", icon: "⚡" },
+  { href: "/chart", label: "Chart", icon: "📈" },
   { href: "/journal", label: "Journal", icon: "📖" },
   { href: "/shares", label: "Shares", icon: "🌐" },
 ];
@@ -40,7 +41,6 @@ export function AppNav({ isAdmin: serverIsAdmin }: AppNavProps) {
         if (!user) return;
 
         const email = (user.email || "").toLowerCase();
-        const usernameMeta = (user.user_metadata?.username || "").toLowerCase();
 
         // Strictly match admin email support@mochex.com
         if (email === "support@mochex.com") {

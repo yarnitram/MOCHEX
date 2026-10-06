@@ -1,6 +1,7 @@
 "use client";
+/* eslint-disable react-hooks/refs, react-hooks/set-state-in-effect, @typescript-eslint/no-explicit-any */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   createChart,
   ColorType,
@@ -108,6 +109,7 @@ interface Props {
   height?: number;
   initialInterval?: string;
   showOverlayToggle?: boolean;
+  maxLeverage?: number | null;
 }
 
 const INTERVALS = [
@@ -192,6 +194,14 @@ export type DragState =
       mode: "rect_corner";
       shapeId: string;
       corner: "c1" | "c2" | "c3" | "c4";
+      anchorTime: number;
+      anchorPrice: number;
+      initialShape: RectangleShape;
+    }
+  | {
+      mode: "rect_edge";
+      shapeId: string;
+      edge: "top" | "bottom" | "left" | "right";
       initialShape: RectangleShape;
     }
   | {
@@ -230,6 +240,7 @@ export function InteractiveCandlestickChart({
   height = 450,
   initialInterval = "15m",
   showOverlayToggle = true,
+  maxLeverage: initialMaxLeverage,
 }: Props) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -265,6 +276,78 @@ export function InteractiveCandlestickChart({
   const [showSetup, setShowSetup] = useState<boolean>(true);
   const [lastCandle, setLastCandle] = useState<CandleData | null>(null);
   const [hoverData, setHoverData] = useState<CandleData | null>(null);
+
+  // Contract Leverage & High-Precision Price Scale State
+  const [contractLeverage, setContractLeverage] = useState<number | null>(initialMaxLeverage ?? null);
+  const [decimalPrecisionMode, setDecimalPrecisionMode] = useState<"auto" | 2 | 4 | 6 | 8>("auto");
+  const [showPriceLadder, setShowPriceLadder] = useState<boolean>(false);
+  const [liveClockTime, setLiveClockTime] = useState<string>("");
+
+  // Real-time clock updating every 1s for the current price timestamp (HH:mm:ss)
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      setLiveClockTime(
+        now.toLocaleTimeString("en-US", {
+          hour12: false,
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })
+      );
+    };
+    updateTime();
+    const timer = setInterval(updateTime, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch contract detail / max leverage fallback if not provided via props
+  useEffect(() => {
+    if (initialMaxLeverage != null) {
+      setContractLeverage(initialMaxLeverage);
+      return;
+    }
+    let mounted = true;
+    async function fetchContractDetail() {
+      try {
+        const res = await fetch(`/api/mexc/futures?symbol=${encodeURIComponent(symbol)}`);
+        const json = await res.json();
+        if (mounted && json.success && json.detail?.maxLeverage) {
+          setContractLeverage(json.detail.maxLeverage);
+        }
+      } catch {}
+    }
+    fetchContractDetail();
+    return () => {
+      mounted = false;
+    };
+  }, [symbol, initialMaxLeverage]);
+
+  // Compute adaptive decimal precision based on token price magnitude
+  const computedDecimals = useMemo(() => {
+    if (decimalPrecisionMode !== "auto") return decimalPrecisionMode;
+    const lastP = lastCandle?.close || 100;
+    if (lastP < 0.0001) return 8;
+    if (lastP < 0.01) return 6;
+    if (lastP < 1) return 4;
+    if (lastP < 100) return 3;
+    return 2;
+  }, [decimalPrecisionMode, lastCandle]);
+
+  // Dynamically update candlestick series price format when precision changes
+  useEffect(() => {
+    if (isDisposedRef.current || !candlestickSeriesRef.current) return;
+    const minMove = Math.pow(10, -computedDecimals);
+    try {
+      candlestickSeriesRef.current.applyOptions({
+        priceFormat: {
+          type: "price",
+          precision: computedDecimals,
+          minMove,
+        },
+      });
+    } catch {}
+  }, [computedDecimals]);
 
   // Drawing tools state
   const [activeTool, setActiveTool] = useState<DrawingTool>("select");
@@ -542,9 +625,13 @@ export function InteractiveCandlestickChart({
       },
       rightPriceScale: {
         borderColor: "rgba(139, 92, 246, 0.15)",
+        entireTextOnly: false,
+        ticksVisible: true,
+        autoScale: true,
+        minimumWidth: 85,
         scaleMargins: {
-          top: 0.1,
-          bottom: 0.2, // Leave room for volume bars at bottom
+          top: 0.06,
+          bottom: 0.14, // Leave room for volume bars at bottom
         },
       },
       timeScale: {
@@ -554,13 +641,18 @@ export function InteractiveCandlestickChart({
       },
     });
 
-    // Add Candlestick Series
+    // Add Candlestick Series with high-precision decimal configuration
     const candlestickSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#34d399",
       downColor: "#fb7185",
       borderVisible: false,
       wickUpColor: "#34d399",
       wickDownColor: "#fb7185",
+      priceFormat: {
+        type: "price",
+        precision: computedDecimals,
+        minMove: Math.pow(10, -computedDecimals),
+      },
     });
 
     // Add Volume Histogram Series
@@ -929,7 +1021,7 @@ export function InteractiveCandlestickChart({
     };
   }, [setup, showSetup, loading]);
 
-  // Coordinate conversion helper: Pixel (x, y) -> Chart (time, price) with future extrapolation support
+  // Coordinate conversion helper: Pixel (x, y) -> Chart (time, price) with out-of-bounds extrapolation support
   const getChartPoint = useCallback(
     (e: React.MouseEvent<Element> | MouseEvent) => {
       try {
@@ -939,25 +1031,42 @@ export function InteractiveCandlestickChart({
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
 
-        // 1. Time conversion (with future logical extrapolation)
+        // 1. Time conversion (with past/future logical extrapolation)
         let time: number | null = null;
         const directTime = chartRef.current.timeScale().coordinateToTime(x);
         if (directTime != null) {
           time = Number(directTime);
-        } else {
-          // Point is past the latest candle (into the future) or before the first candle
+        } else if (candlesRef.current.length > 0) {
           const logical = chartRef.current.timeScale().coordinateToLogical(x);
-          if (logical != null && candlesRef.current.length > 0) {
-            const lastCandleItem = candlesRef.current[candlesRef.current.length - 1];
-            const step = getIntervalSeconds(klineInterval, candlesRef.current);
+          const lastCandleItem = candlesRef.current[candlesRef.current.length - 1];
+          const firstCandle = candlesRef.current[0];
+          const step = getIntervalSeconds(klineInterval, candlesRef.current);
+          if (logical != null) {
             const lastIndex = candlesRef.current.length - 1;
             const diffIndex = logical - lastIndex;
             time = Number(lastCandleItem.time) + Math.round(diffIndex * step);
+          } else {
+            // Extrapolate beyond container boundaries
+            if (x < 0) {
+              const barsBack = Math.round(Math.abs(x) / 8);
+              time = Number(firstCandle.time) - barsBack * step;
+            } else {
+              const barsFwd = Math.round((x - rect.width) / 8);
+              time = Number(lastCandleItem.time) + barsFwd * step;
+            }
           }
         }
 
-        // 2. Price conversion
-        const price = candlestickSeriesRef.current.coordinateToPrice(y);
+        // 2. Price conversion with linear extrapolation if mouse is above/below canvas
+        let price: number | null = candlestickSeriesRef.current.coordinateToPrice(y) as number | null;
+        if (price == null && rect.height > 20) {
+          const pTop = candlestickSeriesRef.current.coordinateToPrice(10) as number | null;
+          const pBottom = candlestickSeriesRef.current.coordinateToPrice(rect.height - 10) as number | null;
+          if (pTop != null && pBottom != null) {
+            const pricePerPx = (pTop - pBottom) / (rect.height - 20);
+            price = pTop - (y - 10) * pricePerPx;
+          }
+        }
 
         if (time == null || price == null) return null;
         return { time, price, x, y };
@@ -968,11 +1077,11 @@ export function InteractiveCandlestickChart({
     [klineInterval]
   );
 
-  // Convert chart point (time, price) -> screen pixel (x, y) with future logical support
+  // Convert chart point (time, price) -> screen pixel (x, y) with boundary extrapolation
   const toPixelCoords = useCallback(
     (time: number, price: number): { x: number; y: number } | null => {
       try {
-        if (isDisposedRef.current || !chartRef.current || !candlestickSeriesRef.current) return null;
+        if (isDisposedRef.current || !chartRef.current || !candlestickSeriesRef.current || !chartContainerRef.current) return null;
 
         // 1. Convert time to local x coordinate
         let x: number | null = null;
@@ -984,15 +1093,25 @@ export function InteractiveCandlestickChart({
           const step = getIntervalSeconds(klineInterval, candlesRef.current);
           const lastIndex = candlesRef.current.length - 1;
           const diffSec = time - Number(lastCandleItem.time);
-          const futureLogical = lastIndex + diffSec / step;
-          const logicalX = chartRef.current.timeScale().logicalToCoordinate(futureLogical as Logical);
+          const logicalVal = lastIndex + diffSec / step;
+          const logicalX = chartRef.current.timeScale().logicalToCoordinate(logicalVal as Logical);
           if (logicalX !== null) {
             x = Number(logicalX);
           }
         }
 
-        // 2. Convert price to y coordinate
-        const y = candlestickSeriesRef.current.priceToCoordinate(price);
+        // 2. Convert price to y coordinate with out-of-bounds extrapolation
+        let y: number | null = candlestickSeriesRef.current.priceToCoordinate(price) as number | null;
+        if (y === null && chartContainerRef.current) {
+          const h = chartContainerRef.current.clientHeight;
+          const pTop = candlestickSeriesRef.current.coordinateToPrice(10) as number | null;
+          const pBottom = candlestickSeriesRef.current.coordinateToPrice(Math.max(h - 10, 20)) as number | null;
+          if (pTop != null && pBottom != null && h > 20 && pTop !== pBottom) {
+            const pxPerPrice = (h - 20) / (pTop - pBottom);
+            y = 10 + (pTop - price) * pxPerPrice;
+          }
+        }
+
         if (x === null || y === null) return null;
         return { x: Number(x), y: Number(y) };
       } catch {
@@ -1081,11 +1200,26 @@ export function InteractiveCandlestickChart({
             }
           } else if (currentDrag.mode === "rect_corner") {
             if (shape.type !== "rectangle") return shape;
-            const { corner } = currentDrag;
-            if (corner === "c1") return { ...shape, time1: pt.time, price1: pt.price };
-            if (corner === "c2") return { ...shape, time2: pt.time, price1: pt.price };
-            if (corner === "c3") return { ...shape, time2: pt.time, price2: pt.price };
-            if (corner === "c4") return { ...shape, time1: pt.time, price2: pt.price };
+            const { anchorTime, anchorPrice } = currentDrag;
+            return {
+              ...shape,
+              time1: Math.min(anchorTime, pt.time),
+              time2: Math.max(anchorTime, pt.time),
+              price1: Math.max(anchorPrice, pt.price),
+              price2: Math.min(anchorPrice, pt.price),
+            };
+          } else if (currentDrag.mode === "rect_edge") {
+            if (shape.type !== "rectangle") return shape;
+            const { edge, initialShape } = currentDrag;
+            if (edge === "top") {
+              return { ...shape, price1: Math.max(pt.price, initialShape.price2) };
+            } else if (edge === "bottom") {
+              return { ...shape, price2: Math.min(pt.price, initialShape.price1) };
+            } else if (edge === "left") {
+              return { ...shape, time1: Math.min(pt.time, initialShape.time2) };
+            } else if (edge === "right") {
+              return { ...shape, time2: Math.max(pt.time, initialShape.time1) };
+            }
           } else if (currentDrag.mode === "path_vertex") {
             if (shape.type !== "path") return shape;
             const newPoints = [...shape.points];
@@ -1117,7 +1251,8 @@ export function InteractiveCandlestickChart({
             } else if (currentDrag.handle === "sl") {
               return { ...shape, stopLoss: pt.price };
             } else if (currentDrag.handle === "right") {
-              return { ...shape, time2: pt.time };
+              const step = getIntervalSeconds(klineInterval, candlesRef.current);
+              return { ...shape, time2: Math.max(pt.time, shape.time1 + step) };
             }
           }
           return shape;
@@ -1397,12 +1532,31 @@ export function InteractiveCandlestickChart({
     }
   };
 
+  const priceLadderLevels = useMemo(() => {
+    if (!showPriceLadder || !activeCandle) return { asks: [], bids: [] };
+    const p = activeCandle.close;
+    const step = Math.max(p * 0.0005, Math.pow(10, -computedDecimals));
+    const asks: Array<{ price: number; pct: string }> = [];
+    const bids: Array<{ price: number; pct: string }> = [];
+    for (let i = 5; i >= 1; i--) {
+      const askP = p + step * i;
+      const diffPct = ((askP - p) / p) * 100;
+      asks.push({ price: askP, pct: `+${diffPct.toFixed(2)}%` });
+    }
+    for (let i = 1; i <= 5; i++) {
+      const bidP = Math.max(0, p - step * i);
+      const diffPct = ((p - bidP) / p) * 100;
+      bids.push({ price: bidP, pct: `-${diffPct.toFixed(2)}%` });
+    }
+    return { asks, bids };
+  }, [showPriceLadder, activeCandle, computedDecimals]);
+
   return (
     <div className="w-full bg-panel border border-line rounded-2xl overflow-hidden shadow-2xl flex flex-col">
       {/* Header Controls Bar */}
       <div className="px-4 py-2.5 bg-panel-soft/80 border-b border-line flex flex-wrap items-center justify-between gap-3">
         {/* Symbol, Price, & Countdown Timer Display */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <span className="font-mono text-base font-bold text-text tracking-wide">
               {cleanSym}
@@ -1410,6 +1564,15 @@ export function InteractiveCandlestickChart({
             <span className="text-xs px-2 py-0.5 rounded-md bg-accent/15 text-accent font-semibold border border-accent/30">
               MEXC Futures
             </span>
+            {contractLeverage != null && contractLeverage > 0 && (
+              <span
+                className="font-mono text-xs font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-xs"
+                title={`Maximum Leverage: ${contractLeverage}x`}
+              >
+                <span>⚡</span>
+                <span>Max {contractLeverage}x</span>
+              </span>
+            )}
             {setup?.side && (
               <span
                 className={`text-xs px-2 py-0.5 rounded-md font-mono font-bold border ${
@@ -1433,16 +1596,50 @@ export function InteractiveCandlestickChart({
             )}
           </div>
 
+          {/* Current Live Price with Real-Time Clock */}
           {activeCandle && (
-            <div className="hidden lg:flex items-center gap-3 font-mono text-xs text-muted border-l border-line pl-3">
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-panel border border-line shadow-xs">
+              <span className="text-[10px] text-muted font-bold uppercase tracking-wider">Price</span>
+              <span
+                className={`font-mono text-sm font-extrabold ${
+                  activeCandle.close >= activeCandle.open ? "text-gain" : "text-loss"
+                }`}
+              >
+                ${activeCandle.close.toLocaleString("en-US", {
+                  minimumFractionDigits: Math.min(computedDecimals, 2),
+                  maximumFractionDigits: computedDecimals,
+                })}
+              </span>
+              <span className="flex items-center gap-1 text-[11px] font-mono text-muted border-l border-line/60 pl-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{liveClockTime}</span>
+              </span>
+            </div>
+          )}
+
+          {activeCandle && (
+            <div className="hidden xl:flex items-center gap-3 font-mono text-xs text-muted border-l border-line pl-3">
+              {hoverData && (
+                <span className="text-accent font-semibold flex items-center gap-1">
+                  <span>🕒</span>
+                  <span>
+                    {new Date(Number(hoverData.time) * 1000).toLocaleTimeString("en-US", {
+                      hour12: false,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })}
+                  </span>
+                </span>
+              )}
               <span>
-                O: <strong className="text-text">{fmtPx(activeCandle.open)}</strong>
+                O: <strong className="text-text">{activeCandle.open.toLocaleString("en-US", { maximumFractionDigits: computedDecimals })}</strong>
               </span>
               <span>
-                H: <strong className="text-gain">{fmtPx(activeCandle.high)}</strong>
+                H: <strong className="text-gain">{activeCandle.high.toLocaleString("en-US", { maximumFractionDigits: computedDecimals })}</strong>
               </span>
               <span>
-                L: <strong className="text-loss">{fmtPx(activeCandle.low)}</strong>
+                L: <strong className="text-loss">{activeCandle.low.toLocaleString("en-US", { maximumFractionDigits: computedDecimals })}</strong>
               </span>
               <span>
                 C:{" "}
@@ -1453,7 +1650,7 @@ export function InteractiveCandlestickChart({
                       : "text-loss"
                   }
                 >
-                  {fmtPx(activeCandle.close)}
+                  {activeCandle.close.toLocaleString("en-US", { maximumFractionDigits: computedDecimals })}
                 </strong>
               </span>
             </div>
@@ -1735,6 +1932,40 @@ export function InteractiveCandlestickChart({
             ))}
           </div>
 
+          {/* Decimal Precision Selector */}
+          <div className="flex items-center bg-panel p-1 rounded-lg border border-line text-xs font-mono" title="Set right-side price scale decimal precision">
+            <span className="text-[10px] text-muted px-1 uppercase font-sans font-semibold">Dec:</span>
+            {(["auto", 2, 4, 6, 8] as const).map((dec) => (
+              <button
+                key={String(dec)}
+                type="button"
+                onClick={() => setDecimalPrecisionMode(dec)}
+                className={`px-1.5 py-0.5 text-[11px] rounded transition-all ${
+                  decimalPrecisionMode === dec
+                    ? "bg-accent text-white font-bold shadow-xs"
+                    : "text-muted hover:text-text hover:bg-panel-soft"
+                }`}
+              >
+                {dec === "auto" ? "Auto" : `.${dec}`}
+              </button>
+            ))}
+          </div>
+
+          {/* Toggle Right-Side Price Ladder */}
+          <button
+            type="button"
+            onClick={() => setShowPriceLadder((prev) => !prev)}
+            className={`px-2 py-1 text-xs font-medium rounded-lg border transition-all flex items-center gap-1 ${
+              showPriceLadder
+                ? "bg-accent/20 text-accent font-bold border-accent/40 shadow-xs"
+                : "bg-panel border-line text-muted hover:text-text hover:bg-panel-soft"
+            }`}
+            title="Toggle Right-Side High-Precision Price Ladder"
+          >
+            <span>📊</span>
+            <span className="hidden sm:inline">Ladder</span>
+          </button>
+
           {/* Snapshot Camera Export Button */}
           <button
             onClick={captureSnapshot}
@@ -1776,8 +2007,9 @@ export function InteractiveCandlestickChart({
         </div>
       </div>
 
-      {/* Chart Canvas Container */}
-      <div className="relative w-full flex-1 min-h-[300px]">
+      {/* Chart Canvas & Price Ladder Flex Container */}
+      <div className="relative w-full flex-1 min-h-[300px] flex">
+        <div className="relative flex-1 h-full min-w-0">
         {loading && (
           <div className="absolute inset-0 bg-paper/60 backdrop-blur-xs z-10 flex items-center justify-center">
             <div className="flex items-center gap-3 bg-panel px-4 py-2.5 rounded-xl border border-line shadow-xl">
@@ -1907,7 +2139,6 @@ export function InteractiveCandlestickChart({
           }`}
         >
           <svg className="w-full h-full pointer-events-none">
-            {/* Render Saved Drawings */}
             {drawings.map((shape) => {
               // 1. Rectangle
               if (shape.type === "rectangle") {
@@ -1915,12 +2146,16 @@ export function InteractiveCandlestickChart({
                 const c2 = toPixelCoords(shape.time2, shape.price1);
                 const c3 = toPixelCoords(shape.time2, shape.price2);
                 const c4 = toPixelCoords(shape.time1, shape.price2);
-                if (!c1 || !c3) return null;
+                if (!c1 && !c2 && !c3 && !c4) return null;
 
-                const minX = Math.min(c1.x, c3.x);
-                const maxX = Math.max(c1.x, c3.x);
-                const minY = Math.min(c1.y, c3.y);
-                const maxY = Math.max(c1.y, c3.y);
+                const validX = [c1?.x, c2?.x, c3?.x, c4?.x].filter((v): v is number => v != null);
+                const validY = [c1?.y, c2?.y, c3?.y, c4?.y].filter((v): v is number => v != null);
+                if (validX.length === 0 || validY.length === 0) return null;
+
+                const minX = Math.min(...validX);
+                const maxX = Math.max(...validX);
+                const minY = Math.min(...validY);
+                const maxY = Math.max(...validY);
                 const width = Math.max(maxX - minX, 6);
                 const height = Math.max(maxY - minY, 6);
 
@@ -1966,82 +2201,168 @@ export function InteractiveCandlestickChart({
                     {/* 4 Corner Resize Handles when Selected */}
                     {isSelected && activeTool === "select" && (
                       <>
+                        {/* c1 (NW) - Anchor is SE (time2, price2) */}
                         <circle
-                          cx={c1.x}
-                          cy={c1.y}
-                          r={5}
+                          cx={minX}
+                          cy={minY}
+                          r={5.5}
                           fill="#ffffff"
                           stroke={shape.color}
                           strokeWidth={2}
-                          className="cursor-nwse-resize pointer-events-auto shadow-md hover:scale-125 transition-transform"
+                          className="cursor-nwse-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
                               mode: "rect_corner",
                               shapeId: shape.id,
                               corner: "c1",
+                              anchorTime: shape.time2,
+                              anchorPrice: shape.price2,
                               initialShape: shape,
                             });
                           }}
                         />
-                        {c2 && (
-                          <circle
-                            cx={c2.x}
-                            cy={c2.y}
-                            r={5}
-                            fill="#ffffff"
-                            stroke={shape.color}
-                            strokeWidth={2}
-                            className="cursor-nesw-resize pointer-events-auto shadow-md hover:scale-125 transition-transform"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              setDragState({
-                                mode: "rect_corner",
-                                shapeId: shape.id,
-                                corner: "c2",
-                                initialShape: shape,
-                              });
-                            }}
-                          />
-                        )}
+                        {/* c2 (NE) - Anchor is SW (time1, price2) */}
                         <circle
-                          cx={c3.x}
-                          cy={c3.y}
-                          r={5}
+                          cx={maxX}
+                          cy={minY}
+                          r={5.5}
                           fill="#ffffff"
                           stroke={shape.color}
                           strokeWidth={2}
-                          className="cursor-nwse-resize pointer-events-auto shadow-md hover:scale-125 transition-transform"
+                          className="cursor-nesw-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_corner",
+                              shapeId: shape.id,
+                              corner: "c2",
+                              anchorTime: shape.time1,
+                              anchorPrice: shape.price2,
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+                        {/* c3 (SE) - Anchor is NW (time1, price1) */}
+                        <circle
+                          cx={maxX}
+                          cy={maxY}
+                          r={5.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={2}
+                          className="cursor-nwse-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
                               mode: "rect_corner",
                               shapeId: shape.id,
                               corner: "c3",
+                              anchorTime: shape.time1,
+                              anchorPrice: shape.price1,
                               initialShape: shape,
                             });
                           }}
                         />
-                        {c4 && (
-                          <circle
-                            cx={c4.x}
-                            cy={c4.y}
-                            r={5}
-                            fill="#ffffff"
-                            stroke={shape.color}
-                            strokeWidth={2}
-                            className="cursor-nesw-resize pointer-events-auto shadow-md hover:scale-125 transition-transform"
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              setDragState({
-                                mode: "rect_corner",
-                                shapeId: shape.id,
-                                corner: "c4",
-                                initialShape: shape,
-                              });
-                            }}
-                          />
-                        )}
+                        {/* c4 (SW) - Anchor is NE (time2, price1) */}
+                        <circle
+                          cx={minX}
+                          cy={maxY}
+                          r={5.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={2}
+                          className="cursor-nesw-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_corner",
+                              shapeId: shape.id,
+                              corner: "c4",
+                              anchorTime: shape.time2,
+                              anchorPrice: shape.price1,
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+
+                        {/* 4 Edge Midpoint Handles for Single-Axis Resizing */}
+                        {/* Top Edge Handle */}
+                        <circle
+                          cx={minX + width / 2}
+                          cy={minY}
+                          r={4.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={1.5}
+                          className="cursor-ns-resize pointer-events-auto shadow-xs hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_edge",
+                              shapeId: shape.id,
+                              edge: "top",
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+                        {/* Bottom Edge Handle */}
+                        <circle
+                          cx={minX + width / 2}
+                          cy={maxY}
+                          r={4.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={1.5}
+                          className="cursor-ns-resize pointer-events-auto shadow-xs hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_edge",
+                              shapeId: shape.id,
+                              edge: "bottom",
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+                        {/* Left Edge Handle */}
+                        <circle
+                          cx={minX}
+                          cy={minY + height / 2}
+                          r={4.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={1.5}
+                          className="cursor-ew-resize pointer-events-auto shadow-xs hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_edge",
+                              shapeId: shape.id,
+                              edge: "left",
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+                        {/* Right Edge Handle */}
+                        <circle
+                          cx={maxX}
+                          cy={minY + height / 2}
+                          r={4.5}
+                          fill="#ffffff"
+                          stroke={shape.color}
+                          strokeWidth={1.5}
+                          className="cursor-ew-resize pointer-events-auto shadow-xs hover:stroke-white hover:fill-amber-300 transition-colors"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "rect_edge",
+                              shapeId: shape.id,
+                              edge: "right",
+                              initialShape: shape,
+                            });
+                          }}
+                        />
                       </>
                     )}
                   </g>
@@ -2100,32 +2421,36 @@ export function InteractiveCandlestickChart({
                       strokeLinejoin="round"
                       className="pointer-events-none"
                     />
-                    {pxPoints.map((p, idx) => (
-                      <circle
-                        key={idx}
-                        cx={p.x}
-                        cy={p.y}
-                        r={isSelected ? 6 : 3}
-                        fill={isSelected ? "#ffffff" : shape.color}
-                        stroke={shape.color}
-                        strokeWidth={isSelected ? 2.5 : 1}
-                        className={
-                          isSelected && activeTool === "select"
-                            ? "cursor-move pointer-events-auto shadow-md hover:scale-125 transition-transform"
-                            : "pointer-events-none"
-                        }
-                        onMouseDown={(e) => {
-                          if (!isSelected || activeTool !== "select") return;
-                          e.stopPropagation();
-                          setDragState({
-                            mode: "path_vertex",
-                            shapeId: shape.id,
-                            pointIndex: idx,
-                            initialShape: shape,
-                          });
-                        }}
-                      />
-                    ))}
+                    {shape.points.map((pt, origIdx) => {
+                      const p = toPixelCoords(pt.time, pt.price);
+                      if (!p) return null;
+                      return (
+                        <circle
+                          key={origIdx}
+                          cx={p.x}
+                          cy={p.y}
+                          r={isSelected ? 6 : 3}
+                          fill={isSelected ? "#ffffff" : shape.color}
+                          stroke={shape.color}
+                          strokeWidth={isSelected ? 2.5 : 1}
+                          className={
+                            isSelected && activeTool === "select"
+                              ? "cursor-move pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
+                              : "pointer-events-none"
+                          }
+                          onMouseDown={(e) => {
+                            if (!isSelected || activeTool !== "select") return;
+                            e.stopPropagation();
+                            setDragState({
+                              mode: "path_vertex",
+                              shapeId: shape.id,
+                              pointIndex: origIdx,
+                              initialShape: shape,
+                            });
+                          }}
+                        />
+                      );
+                    })}
                   </g>
                 );
               }
@@ -2189,7 +2514,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke={shape.color}
                           strokeWidth={2}
-                          className="cursor-move pointer-events-auto shadow-md"
+                          className="cursor-move pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2207,7 +2532,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke={shape.color}
                           strokeWidth={2}
-                          className="cursor-move pointer-events-auto shadow-md"
+                          className="cursor-move pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2391,7 +2716,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke="#f59e0b"
                           strokeWidth={2}
-                          className="cursor-move pointer-events-auto shadow-md"
+                          className="cursor-move pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2409,7 +2734,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke="#f59e0b"
                           strokeWidth={2}
-                          className="cursor-move pointer-events-auto shadow-md"
+                          className="cursor-move pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2558,7 +2883,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke="#34d399"
                           strokeWidth={2}
-                          className="cursor-ns-resize pointer-events-auto shadow-md"
+                          className="cursor-ns-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2576,7 +2901,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke="#fb7185"
                           strokeWidth={2}
-                          className="cursor-ns-resize pointer-events-auto shadow-md"
+                          className="cursor-ns-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2594,7 +2919,7 @@ export function InteractiveCandlestickChart({
                           fill="#ffffff"
                           stroke="#94a3b8"
                           strokeWidth={2}
-                          className="cursor-ew-resize pointer-events-auto shadow-md"
+                          className="cursor-ew-resize pointer-events-auto shadow-md hover:stroke-white hover:fill-amber-300 transition-colors"
                           onMouseDown={(e) => {
                             e.stopPropagation();
                             setDragState({
@@ -2717,6 +3042,53 @@ export function InteractiveCandlestickChart({
             )}
           </svg>
         </div>
+      </div>
+
+        {/* Toggleable Right-Side Price Ladder Panel */}
+        {showPriceLadder && activeCandle && (
+          <div className="w-36 sm:w-44 border-l border-line bg-panel-soft/70 flex flex-col font-mono text-xs select-none shrink-0 shadow-lg">
+            <div className="px-3 py-2 bg-panel border-b border-line flex items-center justify-between text-[11px]">
+              <span className="font-bold text-text uppercase tracking-wider">Price Ladder</span>
+              <span className="text-[10px] text-muted font-mono">.{computedDecimals}</span>
+            </div>
+
+            {/* Asks (Sell Levels) - Red */}
+            <div className="flex-1 flex flex-col justify-end p-2 gap-1 overflow-hidden">
+              {priceLadderLevels.asks.map((lvl, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[11px] px-1.5 py-0.5 rounded bg-loss/5 hover:bg-loss/15 transition-colors">
+                  <span className="text-loss font-semibold">
+                    {lvl.price.toLocaleString("en-US", { minimumFractionDigits: Math.min(computedDecimals, 2), maximumFractionDigits: computedDecimals })}
+                  </span>
+                  <span className="text-loss/70 text-[10px]">{lvl.pct}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Current Market Price in Center with Live Time */}
+            <div className="my-1 mx-2 p-2 rounded-xl bg-panel border border-line shadow-xs flex flex-col items-center justify-center">
+              <div className="text-[10px] text-muted uppercase font-bold tracking-wider">Market Price</div>
+              <div className={`font-mono text-xs sm:text-sm font-extrabold ${activeCandle.close >= activeCandle.open ? "text-gain" : "text-loss"}`}>
+                ${activeCandle.close.toLocaleString("en-US", { minimumFractionDigits: Math.min(computedDecimals, 2), maximumFractionDigits: computedDecimals })}
+              </div>
+              <div className="text-[10px] text-muted font-mono flex items-center gap-1 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>{liveClockTime}</span>
+              </div>
+            </div>
+
+            {/* Bids (Buy Levels) - Green */}
+            <div className="flex-1 flex flex-col justify-start p-2 gap-1 overflow-hidden">
+              {priceLadderLevels.bids.map((lvl, idx) => (
+                <div key={idx} className="flex items-center justify-between text-[11px] px-1.5 py-0.5 rounded bg-gain/5 hover:bg-gain/15 transition-colors">
+                  <span className="text-gain font-semibold">
+                    {lvl.price.toLocaleString("en-US", { minimumFractionDigits: Math.min(computedDecimals, 2), maximumFractionDigits: computedDecimals })}
+                  </span>
+                  <span className="text-gain/70 text-[10px]">{lvl.pct}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Custom Formula / PineScript Indicator Studio Modal */}
