@@ -67,6 +67,7 @@ export async function POST(request: Request) {
           .from("trade-screenshots")
           .upload(path, buffer, {
             contentType: file.type || "image/jpeg",
+            cacheControl: "31536000, immutable",
             upsert: true,
           });
 

@@ -25,7 +25,11 @@ export async function uploadScreenshot(
 
   const { error: uploadError } = await supabase.storage
     .from(BUCKET)
-    .upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    .upload(path, blob, {
+      contentType: "image/jpeg",
+      cacheControl: "31536000, immutable",
+      upsert: true,
+    });
   if (uploadError) throw new Error(uploadError.message);
 
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(path);

@@ -388,6 +388,7 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
 
   // Poll for active alert updates & TP/SL checks
   const refreshAllAlerts = async () => {
+    if (typeof document !== "undefined" && document.hidden) return;
     if (isCheckingRef.current) return;
     isCheckingRef.current = true;
     try {
@@ -450,22 +451,42 @@ export function TradesClient({ initialAlerts, refreshIntervalSec = 10 }: Props) 
   }, [live, activeAlerts]);
 
   useEffect(() => {
-    let cancelled = false;
+    let timerId: NodeJS.Timeout | null = null;
     const intervalMs = Math.max(
-      3000,
-      (Number(refreshIntervalSec) || 10) * 1000
+      15000,
+      (Number(refreshIntervalSec) || 15) * 1000
     );
 
-    const run = async () => {
-      if (cancelled) return;
-      await refreshAllAlerts();
+    const startPolling = () => {
+      if (!timerId) {
+        refreshAllAlerts();
+        timerId = setInterval(refreshAllAlerts, intervalMs);
+      }
     };
 
-    run();
-    const id = setInterval(run, intervalMs);
+    const stopPolling = () => {
+      if (timerId) {
+        clearInterval(timerId);
+        timerId = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    if (!document.hidden) {
+      startPolling();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => {
-      cancelled = true;
-      clearInterval(id);
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [refreshIntervalSec]);
 

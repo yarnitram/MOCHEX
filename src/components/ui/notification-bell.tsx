@@ -16,7 +16,7 @@ interface NotificationBellProps {
   initialUnreadCount?: number;
 }
 
-const POLL_INTERVAL = 30_000; // 30 seconds
+const POLL_INTERVAL = 60_000; // 60 seconds
 
 export function NotificationBell({ initialUnreadCount = 0 }: NotificationBellProps) {
   const [unreadCount, setUnreadCount] = useState(initialUnreadCount);
@@ -30,6 +30,7 @@ export function NotificationBell({ initialUnreadCount = 0 }: NotificationBellPro
 
   // Fetch unread count
   async function fetchUnreadCount() {
+    if (typeof document !== "undefined" && document.hidden) return;
     try {
       const res = await fetch("/api/notifications/unread-count");
       if (res.ok) {
@@ -131,7 +132,16 @@ export function NotificationBell({ initialUnreadCount = 0 }: NotificationBellPro
   useEffect(() => {
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, POLL_INTERVAL);
-    return () => clearInterval(interval);
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        fetchUnreadCount();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   // Fetch notifications when dropdown opens

@@ -131,7 +131,9 @@ export async function POST() {
   // Only active rows with a level still outstanding can possibly fire.
   const { data, error } = await supabase
     .from("trade_alerts")
-    .select("*")
+    .select(
+      "id, user_id, symbol, trigger_price, trigger_direction, fired_price, entry_price, stop_loss, take_profit, margin_usd, leverage, tp1_price, tp1_hit, auto_be_on_tp1, sl_fired_at, tp_fired_at, status, notes, fired_at, created_at"
+    )
     .eq("user_id", user.id)
     .or("status.neq.closed,status.is.null")
     .or("sl_fired_at.is.null,tp_fired_at.is.null");

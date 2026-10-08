@@ -13,41 +13,108 @@ interface ProximityAlarmToast {
   timestamp: number;
 }
 
+interface ProximityItem {
+  id: string;
+  symbol: string;
+  trigger_price: number | null;
+  alert_fired: boolean;
+}
+
 export function AudioAlarmNotifier() {
   const [toasts, setToasts] = useState<ProximityAlarmToast[]>([]);
   const cooldownsRef = useRef<Record<string, number>>({});
 
-  const checkProximity = useCallback(async () => {
-    try {
-      // 1. Fetch user settings for audio preferences
-      const settingsRes = await fetch("/api/settings");
-      const settingsJson = await settingsRes.json();
-      const settings = settingsJson?.settings;
+  // In-memory caches to prevent polling Supabase on every 10s tick
+  const settingsRef = useRef<{
+    loadedAt: number;
+    sound_enabled?: boolean;
+    proximity_alarm_enabled?: boolean;
+    proximity_threshold_pct?: number;
+    alarm_sound_preset?: AlarmSoundPreset;
+  } | null>(null);
 
+  const watchlistRef = useRef<{
+    loadedAt: number;
+    items: ProximityItem[];
+  } | null>(null);
+
+  // Fetch and cache user settings (valid for 5 minutes)
+  const getSettings = useCallback(async () => {
+    const now = Date.now();
+    if (settingsRef.current && now - settingsRef.current.loadedAt < 300_000) {
+      return settingsRef.current;
+    }
+    try {
+      const res = await fetch("/api/settings");
+      if (!res.ok) return settingsRef.current;
+      const json = await res.json();
+      const s = json?.settings;
+      if (s) {
+        settingsRef.current = {
+          loadedAt: now,
+          sound_enabled: s.sound_enabled,
+          proximity_alarm_enabled: s.proximity_alarm_enabled,
+          proximity_threshold_pct: Number(s.proximity_threshold_pct || 0.5),
+          alarm_sound_preset: s.alarm_sound_preset || "radar_ping",
+        };
+      }
+      return settingsRef.current;
+    } catch {
+      return settingsRef.current;
+    }
+  }, []);
+
+  // Fetch and cache watchlist items (valid for 2 minutes)
+  const getWatchlist = useCallback(async () => {
+    const now = Date.now();
+    if (watchlistRef.current && now - watchlistRef.current.loadedAt < 120_000) {
+      return watchlistRef.current.items;
+    }
+    try {
+      const res = await fetch("/api/watchlist");
+      if (!res.ok) return watchlistRef.current?.items || [];
+      const json = await res.json();
+      if (Array.isArray(json?.items)) {
+        const filtered: ProximityItem[] = json.items
+          .filter((i: ProximityItem) => !i.alert_fired && i.trigger_price && i.trigger_price > 0)
+          .map((i: ProximityItem) => ({
+            id: i.id,
+            symbol: i.symbol,
+            trigger_price: i.trigger_price,
+            alert_fired: i.alert_fired,
+          }));
+        watchlistRef.current = { loadedAt: now, items: filtered };
+        return filtered;
+      }
+      return watchlistRef.current?.items || [];
+    } catch {
+      return watchlistRef.current?.items || [];
+    }
+  }, []);
+
+  const checkProximity = useCallback(async () => {
+    // If tab is hidden or minimized, DO NOT poll or process
+    if (typeof document !== "undefined" && document.hidden) {
+      return;
+    }
+
+    try {
+      const settings = await getSettings();
       if (!settings?.sound_enabled || !settings?.proximity_alarm_enabled) {
         return;
       }
 
-      const thresholdPct = Number(settings.proximity_threshold_pct || 0.5);
+      const items = await getWatchlist();
+      if (items.length === 0) return;
+
+      const thresholdPct = settings.proximity_threshold_pct || 0.5;
       const preset: AlarmSoundPreset = settings.alarm_sound_preset || "radar_ping";
 
-      // 2. Fetch active watchlist items & live tickers
-      const [wlRes, tickersRes] = await Promise.all([
-        fetch("/api/watchlist"),
-        fetch("/api/mexc/futures"),
-      ]);
-
-      const wlJson = await wlRes.json();
+      // Only fetch MEXC tickers on the 10-second loop (0 Supabase usage!)
+      const tickersRes = await fetch("/api/mexc/futures");
+      if (!tickersRes.ok) return;
       const tickersJson = await tickersRes.json();
-
-      if (!wlJson.items || !tickersJson.tickers) return;
-
-      const items: Array<{
-        id: string;
-        symbol: string;
-        trigger_price: number | null;
-        alert_fired: boolean;
-      }> = wlJson.items;
+      if (!tickersJson.tickers) return;
 
       const tickers: Array<{ symbol: string; lastPrice: number }> = tickersJson.tickers;
       const tickerMap = new Map<string, number>();
@@ -60,8 +127,7 @@ export function AudioAlarmNotifier() {
       let triggeredSound = false;
 
       for (const item of items) {
-        // Skip already fired alerts or items without trigger price
-        if (item.alert_fired || !item.trigger_price || item.trigger_price <= 0) continue;
+        if (!item.trigger_price) continue;
 
         const lastPx = tickerMap.get(item.symbol.toUpperCase());
         if (!lastPx || lastPx <= 0) continue;
@@ -100,12 +166,42 @@ export function AudioAlarmNotifier() {
     } catch (err) {
       console.error("Audio proximity alarm check error:", err);
     }
-  }, []);
+  }, [getSettings, getWatchlist]);
 
   useEffect(() => {
-    checkProximity();
-    const interval = setInterval(checkProximity, 10_000); // Check every 10s
-    return () => clearInterval(interval);
+    let interval: NodeJS.Timeout | null = null;
+
+    const startPolling = () => {
+      if (!interval) {
+        checkProximity();
+        interval = setInterval(checkProximity, 10_000);
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    if (!document.hidden) {
+      startPolling();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [checkProximity]);
 
   const removeToast = (id: string) => {

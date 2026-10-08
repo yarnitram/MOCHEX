@@ -19,8 +19,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
 const args = process.argv.slice(2);
-const intervalIdx = args.indexOf("--interval");
-const POLL_MS = (Number(args[intervalIdx + 1]) || 10) * 1000;
+const POLL_MS = (Number(args[intervalIdx + 1]) || 30) * 1000;
 
 // Load .env.local
 const env = loadDotEnv(path.join(ROOT, ".env.local"));
@@ -102,19 +101,36 @@ function stamp() {
   return new Date().toLocaleTimeString();
 }
 
+let cachedSettingsByUser = null;
+let lastSettingsFetch = 0;
+const SETTINGS_TTL = 10 * 60 * 1000; // 10 minutes
+
+async function getSettingsByUser() {
+  const now = Date.now();
+  if (cachedSettingsByUser && now - lastSettingsFetch < SETTINGS_TTL) {
+    return cachedSettingsByUser;
+  }
+  try {
+    const rows = await supabase(
+      "/rest/v1/user_settings?select=user_id,discord_webhook_url,notify_discord,notify_desktop"
+    );
+    const map = {};
+    for (const r of rows) map[r.user_id] = r;
+    cachedSettingsByUser = map;
+    lastSettingsFetch = now;
+    return map;
+  } catch (err) {
+    if (cachedSettingsByUser) return cachedSettingsByUser;
+    throw err;
+  }
+}
+
 async function checkAll() {
   const [watchlist, settingsByUser] = await Promise.all([
     supabase(
       "/rest/v1/watchlist_items?select=id,user_id,symbol,trigger_price,trigger_direction,entry_price,stop_loss,take_profit,order_type,notes,alert_fired"
     ),
-    (async () => {
-      const rows = await supabase(
-        "/rest/v1/user_settings?select=user_id,discord_webhook_url,notify_discord,notify_desktop"
-      );
-      const map = {};
-      for (const r of rows) map[r.user_id] = r;
-      return map;
-    })(),
+    getSettingsByUser(),
   ]);
 
   const activeItems = watchlist.filter(
