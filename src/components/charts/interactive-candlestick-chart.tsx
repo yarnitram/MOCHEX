@@ -885,6 +885,7 @@ export function InteractiveCandlestickChart({
     isFirstLoadRef.current = true;
     fetchCandles(false);
     const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       if (!isDisposedRef.current) {
         fetchCandles(true);
       }

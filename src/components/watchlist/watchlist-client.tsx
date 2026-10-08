@@ -243,28 +243,34 @@ export function WatchlistClient({
     }
   }, [triggeredItems]);
 
-  // ---- Effect: background trigger checking + triggered list sync ----
-
+  // ---- Effect: sync triggered list only when opening triggered tab ----
+  const hasLoadedTriggeredRef = useRef(false);
   useEffect(() => {
-    let cancelled = false;
+    if (activeTab === "triggered" && !hasLoadedTriggeredRef.current) {
+      hasLoadedTriggeredRef.current = true;
+      fetch("/api/triggered-watchlist")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.tableMissing) {
+            setIsTriggeredTableMissing(true);
+          } else if (Array.isArray(data?.items)) {
+            setIsTriggeredTableMissing(false);
+            setTriggeredItems(data.items as TriggeredWatchlistItem[]);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [activeTab]);
 
-    // Background sync triggered items
-    fetch("/api/triggered-watchlist")
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data?.tableMissing) {
-          setIsTriggeredTableMissing(true);
-        } else if (Array.isArray(data?.items)) {
-          setIsTriggeredTableMissing(false);
-          setTriggeredItems(data.items as TriggeredWatchlistItem[]);
-        }
-      })
-      .catch(() => {});
-
+  // ---- Effect: background trigger checking (active tabs only) ----
+  useEffect(() => {
+    if (typeof document !== "undefined" && document.hidden) return;
     if (symbolsToTrack.length === 0 || Object.keys(live).length === 0) return;
 
+    let cancelled = false;
+
     async function checkTriggers() {
+      if (typeof document !== "undefined" && document.hidden) return;
       const toFire = items.filter((i) => {
         if (i.alert_fired) return false;
         if (i.trigger_price == null || i.trigger_direction == null) return false;

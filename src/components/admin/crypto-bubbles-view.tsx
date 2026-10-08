@@ -78,8 +78,42 @@ export function CryptoBubblesView() {
   useEffect(() => {
     fetchData();
     if (!autoRefresh) return;
-    const interval = setInterval(fetchData, 10000);
-    return () => clearInterval(interval);
+
+    let interval: NodeJS.Timeout | null = null;
+    const startPolling = () => {
+      if (!interval) {
+        interval = setInterval(() => {
+          if (typeof document !== "undefined" && document.hidden) return;
+          fetchData();
+        }, 30_000); // 30s cadence
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        fetchData();
+        startPolling();
+      }
+    };
+
+    if (!document.hidden) {
+      startPolling();
+    }
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stopPolling();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
   }, [nonMajorOnly, autoRefresh]);
 
   // Filtered Tokens

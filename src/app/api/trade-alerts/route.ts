@@ -21,7 +21,8 @@ export async function GET() {
     .from("trade_alerts")
     .select("*")
     .eq("user_id", user.id)
-    .order("fired_at", { ascending: false });
+    .order("fired_at", { ascending: false })
+    .limit(100);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 });

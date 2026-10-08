@@ -155,8 +155,9 @@ export function NotificationsPageClient({
       )
       .subscribe();
 
-    // 20s polling fallback to keep unread badges perfectly synchronized
-    const poller = setInterval(async () => {
+    // 60s polling fallback to keep unread badges synchronized (with tab visibility guard)
+    const fetchUnread = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
       try {
         const res = await fetch("/api/notifications/unread-count");
         if (res.ok) {
@@ -166,11 +167,18 @@ export function NotificationsPageClient({
       } catch {
         // Fallback polling error
       }
-    }, 20_000);
+    };
+
+    const poller = setInterval(fetchUnread, 60_000);
+    const handleVisibility = () => {
+      if (!document.hidden) fetchUnread();
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
 
     return () => {
       supabase.removeChannel(channel);
       clearInterval(poller);
+      document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [supabase]);
 

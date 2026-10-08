@@ -37,6 +37,13 @@ interface MexcTicker {
   riseFallRate: number;
 }
 
+let bubblesCache: {
+  key: string;
+  timestamp: number;
+  payload: any;
+} | null = null;
+const CACHE_TTL_MS = 20_000;
+
 export async function GET(request: Request) {
   // Admin only guard
   const { isAdmin } = await requireAdmin(false);
@@ -47,6 +54,12 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const filterNonMajor = searchParams.get("non_major") !== "false";
   const limit = parseInt(searchParams.get("limit") || "80", 10);
+  const cacheKey = `${filterNonMajor}_${limit}`;
+
+  const now = Date.now();
+  if (bubblesCache && bubblesCache.key === cacheKey && now - bubblesCache.timestamp < CACHE_TTL_MS) {
+    return NextResponse.json(bubblesCache.payload);
+  }
 
   try {
     const res = await fetch("https://contract.mexc.com/api/v1/contract/ticker", {
@@ -129,12 +142,18 @@ export async function GET(request: Request) {
       };
     });
 
-    return NextResponse.json({
+    const payload = {
       success: true,
       count: enriched.length,
       timestamp: Date.now(),
       tokens: enriched,
-    });
+    };
+    bubblesCache = {
+      key: cacheKey,
+      timestamp: Date.now(),
+      payload,
+    };
+    return NextResponse.json(payload);
   } catch (err: any) {
     return NextResponse.json(
       { error: err.message || "Failed to fetch bubble market data" },

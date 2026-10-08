@@ -23,7 +23,18 @@ let memoryAnnouncement: AnnouncementData = {
   is_active: false,
 };
 
+let cachedAnnouncement: {
+  timestamp: number;
+  data: any;
+} | null = null;
+const ANNOUNCEMENT_TTL = 5 * 60 * 1000; // 5 minutes
+
 export async function GET() {
+  const now = Date.now();
+  if (cachedAnnouncement && now - cachedAnnouncement.timestamp < ANNOUNCEMENT_TTL) {
+    return NextResponse.json({ announcement: cachedAnnouncement.data });
+  }
+
   const supabase = await createClient();
 
   try {
@@ -36,14 +47,21 @@ export async function GET() {
       .maybeSingle();
 
     if (!error && data) {
+      cachedAnnouncement = { timestamp: now, data };
       return NextResponse.json({ announcement: data });
+    }
+    if (!error && !data) {
+      cachedAnnouncement = { timestamp: now, data: null };
+      return NextResponse.json({ announcement: null });
     }
   } catch {
     // Table may not exist yet, use memory fallback
   }
 
+  const fallback = memoryAnnouncement.is_active ? memoryAnnouncement : null;
+  cachedAnnouncement = { timestamp: now, data: fallback };
   return NextResponse.json({
-    announcement: memoryAnnouncement.is_active ? memoryAnnouncement : null,
+    announcement: fallback,
   });
 }
 
@@ -67,8 +85,9 @@ export async function POST(request: Request) {
       updated_at: new Date().toISOString(),
     };
 
-    // Update in-memory fallback
+    // Update in-memory fallback & invalidate cache
     memoryAnnouncement = { ...payload };
+    cachedAnnouncement = null;
 
     // Try saving to database table if present
     try {
