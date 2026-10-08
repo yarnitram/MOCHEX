@@ -12,6 +12,7 @@ import { WatchlistToolbar } from "./watchlist-toolbar";
 import { WatchlistTable } from "./watchlist-table";
 import { WatchlistTriggeredTab } from "./watchlist-triggered-tab";
 import { WatchlistArchiveTab } from "./watchlist-archive-tab";
+import { exportWatchlistToCsv } from "@/lib/export-watchlist";
 import type { ColKey, SortConfig, Ticker } from "./watchlist-types";
 import {
   DEFAULT_COLS,
@@ -86,6 +87,17 @@ export function WatchlistClient({
   // ---- Pagination ----
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState<number>(20);
+
+  // ---- Multi-selection state ----
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  function handleTabChange(tab: "active" | "triggered" | "archive") {
+    setActiveTab(tab);
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  }
 
   // ---- Derived data ----
 
@@ -553,6 +565,113 @@ export function WatchlistClient({
     }
   }
 
+  // ---- Multi-selection & Bulk Export / Delete handlers ----
+
+  function handleToggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleToggleSelectAllPage() {
+    const pageIds = pageItems.map((item) => item.id);
+    const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const id of pageIds) next.delete(id);
+      } else {
+        for (const id of pageIds) next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleSelectAllFiltered() {
+    const allFilteredIds = filteredItems.map((item) => item.id);
+    setSelectedIds(new Set(allFilteredIds));
+  }
+
+  function handleClearSelection() {
+    setSelectedIds(new Set());
+    setConfirmBulkDelete(false);
+  }
+
+  function handleExportWatchlistCsv(targetItems?: WatchlistItem[]) {
+    let itemsToExport: WatchlistItem[] = [];
+    if (targetItems && targetItems.length > 0) {
+      itemsToExport = targetItems;
+    } else if (selectedIds.size > 0) {
+      itemsToExport = items.filter((item) => selectedIds.has(item.id));
+    } else {
+      itemsToExport = filteredItems;
+    }
+
+    if (itemsToExport.length === 0) {
+      setNote("No coins to export.");
+      return;
+    }
+
+    const count = itemsToExport.length;
+    exportWatchlistToCsv(itemsToExport, live);
+    setNote(`Exported ${count} coin${count > 1 ? "s" : ""} to CSV.`);
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    setIsBulkDeleting(true);
+
+    const itemsToArchive = items.filter((item) => selectedIds.has(item.id));
+    const count = itemsToArchive.length;
+
+    try {
+      for (const pending of itemsToArchive) {
+        try {
+          const archRes = await fetch("/api/archived-watchlist", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              symbol: pending.symbol,
+              trigger_price: pending.trigger_price,
+              trigger_direction: pending.trigger_direction,
+              entry_price: pending.entry_price,
+              stop_loss: pending.stop_loss,
+              take_profit: pending.take_profit,
+              order_type: pending.order_type,
+              notes: pending.notes,
+              archive_source: "active_deleted",
+            }),
+          });
+          if (archRes.ok) {
+            const { item: archived } = await archRes.json();
+            if (archived) {
+              setArchivedItems((prev) => [archived, ...prev]);
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+
+        await fetch(`/api/watchlist/${pending.id}`, { method: "DELETE" });
+      }
+
+      setItems((prev) => prev.filter((i) => !selectedIds.has(i.id)));
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
+      setNote(`Archived and removed ${count} coin${count > 1 ? "s" : ""} from Watchlist.`);
+    } catch (err) {
+      console.error("Bulk delete error:", err);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* ---- Header + Add Token Button ---- */}
@@ -592,7 +711,7 @@ export function WatchlistClient({
       <div className="flex items-center gap-1 border-b border-line pb-0 font-mono text-xs">
         <button
           type="button"
-          onClick={() => setActiveTab("active")}
+          onClick={() => handleTabChange("active")}
           className={`px-3 py-2 border-b-2 font-medium transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === "active"
               ? "border-accent text-accent font-semibold"
@@ -607,7 +726,7 @@ export function WatchlistClient({
 
         <button
           type="button"
-          onClick={() => setActiveTab("triggered")}
+          onClick={() => handleTabChange("triggered")}
           className={`px-3 py-2 border-b-2 font-medium transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === "triggered"
               ? "border-accent text-accent font-semibold"
@@ -622,7 +741,7 @@ export function WatchlistClient({
 
         <button
           type="button"
-          onClick={() => setActiveTab("archive")}
+          onClick={() => handleTabChange("archive")}
           className={`px-3 py-2 border-b-2 font-medium transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === "archive"
               ? "border-accent text-accent font-semibold"
@@ -720,7 +839,106 @@ export function WatchlistClient({
               setPageSize(next);
               setPage(0);
             }}
+            selectedCount={selectedIds.size}
+            onExportCsv={() => handleExportWatchlistCsv()}
           />
+
+          {/* ---- Selection Action Bar ---- */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center justify-between flex-wrap gap-3 px-4 py-2.5 rounded-xl bg-panel border border-accent/40 shadow-sm animate-in fade-in duration-150">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold text-accent text-xs">
+                  ✓ {selectedIds.size} coin{selectedIds.size > 1 ? "s" : ""} selected
+                </span>
+                {filteredItems.length > pageItems.length && selectedIds.size < filteredItems.length && (
+                  <button
+                    type="button"
+                    onClick={handleSelectAllFiltered}
+                    className="text-xs text-muted hover:text-accent underline cursor-pointer ml-1"
+                  >
+                    Select all {filteredItems.length} matching coins
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleExportWatchlistCsv()}
+                  className="accent-btn px-3 py-1.5 text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer"
+                  title="Export selected coins to CSV"
+                >
+                  <svg
+                    className="w-3.5 h-3.5"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  <span>Export Selected ({selectedIds.size}) to CSV</span>
+                </button>
+
+                {confirmBulkDelete ? (
+                  <div className="flex items-center gap-1.5 text-xs">
+                    <span className="text-muted">Delete {selectedIds.size}?</span>
+                    <button
+                      type="button"
+                      disabled={isBulkDeleting}
+                      onClick={handleBulkDelete}
+                      className="px-2.5 py-1.5 rounded-lg border border-loss text-loss hover:bg-loss/10 font-semibold cursor-pointer disabled:opacity-50"
+                    >
+                      {isBulkDeleting ? "Deleting…" : "Confirm"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isBulkDeleting}
+                      onClick={() => setConfirmBulkDelete(false)}
+                      className="px-2 py-1.5 text-muted hover:text-text cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    className="px-3 py-1.5 text-xs rounded-lg border border-loss/40 text-loss hover:bg-loss/10 flex items-center gap-1.5 cursor-pointer transition-colors"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    </svg>
+                    <span>Delete Selected</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleClearSelection}
+                  className="px-2.5 py-1.5 text-xs text-muted hover:text-text cursor-pointer"
+                  title="Clear selection"
+                >
+                  ✕ Clear
+                </button>
+              </div>
+            </div>
+          )}
 
           {filteredItems.length === 0 ? (
             <div className="hairline text-muted p-10 text-center text-sm">
@@ -733,6 +951,9 @@ export function WatchlistClient({
               live={live}
               icons={icons}
               cols={cols}
+              selectedIds={selectedIds}
+              onToggleSelect={handleToggleSelect}
+              onToggleSelectAll={handleToggleSelectAllPage}
               onModify={(item) =>
                 setDetails({ symbol: item.symbol.toUpperCase(), item })
               }

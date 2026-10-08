@@ -54,6 +54,12 @@ The **Futures Watchlist** is a real-time market tracking and trade plan trigger 
    - Ticker polling automatically deduplicates symbols so market data requests remain lean.
    - Restoring an item from Triggered or Archive creates a new active entry without overwriting or colliding with existing active setups.
 
+8. **Multi-Token Selection & Export to CSV**:
+   - **Row-level Checkboxes & Master Checkbox**: Select individual coins or toggle all with the header checkbox (supporting indeterminate status).
+   - **Selection Action Bar**: Appears dynamically when tokens are selected, providing 1-click **Export Selected (N) to CSV**, **Delete Selected (N)** bulk archive, and **Clear selection**.
+   - **Tab-wide CSV Export**: Export active, triggered, or archived setups to RFC-4180 compliant CSV files with live MEXC pricing, full trade plans (EP, SL, TP, TP1-3, R:R), trigger conditions, notes, and UTC/SGT timestamps.
+
+
 ---
 
 ## 🔄 Trigger Execution Lifecycles

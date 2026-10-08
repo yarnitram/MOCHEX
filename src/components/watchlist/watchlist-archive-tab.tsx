@@ -5,13 +5,14 @@ import { deriveTradeSide, type ArchivedWatchlistItem, type WatchlistItem } from 
 import { cleanSymbol, fmtPx, fmtPlanPx } from "@/lib/format";
 import { getOrderTypeLabel } from "@/lib/watchlist-utils";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { exportArchivedWatchlistToCsv } from "@/lib/export-watchlist";
 
 interface Props {
   archivedItems: ArchivedWatchlistItem[];
   icons?: Record<string, string>;
   onItemRestored: (item: WatchlistItem, archivedId: string) => void;
   onItemDeleted: (id: string) => void;
-  onViewDetails?: (item: any) => void;
+  onViewDetails?: (item: ArchivedWatchlistItem) => void;
 }
 
 export function WatchlistArchiveTab({
@@ -98,7 +99,35 @@ export function WatchlistArchiveTab({
   }
 
   return (
-    <div className="overflow-x-auto border border-line rounded-xl bg-panel/40">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <span className="text-xs text-muted font-mono">
+          {archivedItems.length} archived setup{archivedItems.length > 1 ? "s" : ""}
+        </span>
+        <button
+          type="button"
+          onClick={() => exportArchivedWatchlistToCsv(archivedItems)}
+          className="hairline bg-panel hover:bg-panel-soft text-text px-2.5 py-1.5 text-xs cursor-pointer rounded-md flex items-center gap-1.5 transition-colors"
+          title="Export archived tokens to CSV"
+        >
+          <svg
+            className="w-3.5 h-3.5 text-muted"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>Export to CSV</span>
+        </button>
+      </div>
+      <div className="overflow-x-auto border border-line rounded-xl bg-panel/40">
       <table className="w-full text-left border-collapse text-xs">
         <thead>
           <tr className="hairline-b bg-panel-soft/60 font-mono text-[10px] uppercase text-muted tracking-wider">
@@ -298,6 +327,7 @@ export function WatchlistArchiveTab({
           }}
         />
       )}
+      </div>
     </div>
   );
 }

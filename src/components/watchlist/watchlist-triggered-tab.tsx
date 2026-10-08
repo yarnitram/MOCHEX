@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { deriveTradeSide, type TriggeredWatchlistItem, type WatchlistItem, type ArchivedWatchlistItem } from "@/lib/types";
-import { cleanSymbol, fmtPx, fmtPlanPx, mexcChartUrl } from "@/lib/format";
+import { cleanSymbol, fmtPx, fmtPlanPx } from "@/lib/format";
 import { getOrderTypeLabel } from "@/lib/watchlist-utils";
 import { ChartModal } from "@/components/charts/chart-modal";
+import { exportTriggeredWatchlistToCsv } from "@/lib/export-watchlist";
 
 const MIGRATION_SQL = `-- Migration 012: triggered_watchlist_items
 create table if not exists triggered_watchlist_items (
@@ -45,7 +46,7 @@ interface Props {
   icons?: Record<string, string>;
   onItemRestored: (item: WatchlistItem, triggeredId: string) => void;
   onItemDeleted: (id: string, archivedItem?: ArchivedWatchlistItem) => void;
-  onViewDetails?: (item: any) => void;
+  onViewDetails?: (item: TriggeredWatchlistItem) => void;
 }
 
 export function WatchlistTriggeredTab({
@@ -228,6 +229,33 @@ export function WatchlistTriggeredTab({
   return (
     <div className="flex flex-col">
       {tableMissingBanner}
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <span className="text-xs text-muted font-mono">
+          {triggeredItems.length} triggered setup{triggeredItems.length > 1 ? "s" : ""}
+        </span>
+        <button
+          type="button"
+          onClick={() => exportTriggeredWatchlistToCsv(triggeredItems)}
+          className="hairline bg-panel hover:bg-panel-soft text-text px-2.5 py-1.5 text-xs cursor-pointer rounded-md flex items-center gap-1.5 transition-colors"
+          title="Export triggered tokens to CSV"
+        >
+          <svg
+            className="w-3.5 h-3.5 text-muted"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          <span>Export to CSV</span>
+        </button>
+      </div>
       <div className="overflow-x-auto border border-line rounded-xl bg-panel/40">
       <table className="w-full text-left border-collapse text-xs">
         <thead>

@@ -8,7 +8,6 @@ import {
   fmtPlanPx,
   fmtPx,
   compact,
-  mexcChartUrl,
 } from "@/lib/format";
 import type { ColKey, Ticker } from "./watchlist-types";
 import { getOrderTypeLabel } from "@/lib/watchlist-utils";
@@ -42,6 +41,10 @@ export interface WatchlistRowProps {
   iconUrl: string | undefined;
   /** Which columns are currently visible. */
   cols: Record<ColKey, boolean>;
+  /** Whether this row is selected for bulk actions. */
+  isSelected?: boolean;
+  /** Toggle selection of this row. */
+  onToggleSelect?: () => void;
   /** Open the detail/modify modal for this row. */
   onModify: () => void;
   /** Open the remove-confirmation for this row. */
@@ -95,6 +98,8 @@ export function WatchlistRow({
   ticker,
   iconUrl,
   cols,
+  isSelected,
+  onToggleSelect,
   onModify,
   onRemove,
 }: WatchlistRowProps) {
@@ -115,7 +120,21 @@ export function WatchlistRow({
 
   return (
     <>
-      <tr className="hairline-b hover:bg-panel-soft/50 transition-colors">
+      <tr className={`hairline-b transition-colors ${isSelected ? "bg-accent/[0.08]" : "hover:bg-panel-soft/50"}`}>
+        {/* Selection Checkbox */}
+        <td className="px-3 py-2.5 w-8 text-center">
+          <input
+            type="checkbox"
+            checked={!!isSelected}
+            onChange={(e) => {
+              e.stopPropagation();
+              onToggleSelect?.();
+            }}
+            aria-label={`Select ${label}`}
+            className="accent-accent cursor-pointer size-3.5 rounded align-middle"
+          />
+        </td>
+
         {/* Coin with Icon */}
         <td className="px-3 py-2.5">
           <div className="flex items-center gap-2.5">
